@@ -340,4 +340,11 @@ export class ChromaDBClientWrapper {
   static getSchemaVersion(): string {
     return SCHEMA_VERSION;
   }
+
+  /**
+   * Get the default embedding function
+   */
+  getEmbeddingFunction(): DefaultEmbeddingFunction {
+    return this.defaultEmbeddingFunction;
+  }
 }
