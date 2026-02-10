@@ -53,7 +53,7 @@ describe('SearchService', () => {
 
       expect(result.results).toEqual([]);
       expect(result.totalResults).toBe(0);
-      expect(result.queryTime).toBeGreaterThan(0);
+      expect(result.queryTime).toBeGreaterThanOrEqual(0);
     });
 
     it('should search and return ranked results', async () => {

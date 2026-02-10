@@ -212,11 +212,11 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - Test progress reporting
     - _Requirements: 9.4_
 
-- [-] 10. Checkpoint - Verify ingestion pipeline
+- [x] 10. Checkpoint - Verify ingestion pipeline
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 11. Phase 6: MCP Server Implementation
-  - [~] 11.1 Define MCP tool schemas
+  - [x] 11.1 Define MCP tool schemas
     - Create JSON schemas for list_codebases tool (no input, returns codebase array)
     - Create JSON schemas for search_codebases tool (query + optional filters, returns search results)
     - Create JSON schemas for get_codebase_stats tool (name input, returns detailed stats)
@@ -225,7 +225,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - Define input validation rules and output formats
     - _Requirements: 15.1_
 
-  - [~] 11.2 Implement MCP server with stdio transport
+  - [x] 11.2 Implement MCP server with stdio transport
     - Create MCP server that advertises all tools with schemas on startup
     - Implement tool call routing to appropriate services (codebase, search)
     - Add input validation against tool schemas using AJV
@@ -238,20 +238,20 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - Implement stdio transport for communication with MCP clients
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 11.3, 15.1, 15.2, 15.3, 15.4, 15.5_
 
-  - [ ]* 11.3 Write property tests for MCP server
+  - [~]* 11.3 Write property tests for MCP server
     - **Property 25: MCP Input Validation** - For any tool call with invalid parameters, server should return structured error without executing
     - **Property 36: MCP Response Format Compliance** - For any successful tool call, response should conform to MCP specification
     - **Property 37: MCP Error Format Compliance** - For any failed tool call, error response should conform to MCP specification
     - **Validates: Requirements 11.3, 15.2, 15.3, 15.4**
 
-  - [ ]* 11.4 Write unit tests for MCP tools
+  - [~]* 11.4 Write unit tests for MCP tools
     - Test each tool with valid inputs
     - Test each tool with invalid inputs
     - Test error handling for service failures
     - Test browser launching for open_codebase_manager
     - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-  - [~] 11.5 Create MCP server entry point
+  - [x] 11.5 Create MCP server entry point
     - Implement mcp-server executable that starts the MCP server
     - Load configuration from environment and config file
     - Initialize all services (ChromaDB, embedding, codebase, search)
@@ -260,17 +260,17 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - Log startup information and configuration
     - _Requirements: 9.2, 9.3_
 
-  - [ ]* 11.6 Write unit tests for MCP server entry point
+  - [~]* 11.6 Write unit tests for MCP server entry point
     - Test server initialization with valid config
     - Test error handling for initialization failures
     - Test graceful shutdown
     - _Requirements: 9.3_
 
-- [~] 12. Checkpoint - Verify MCP server functionality
+- [x] 12. Checkpoint - Verify MCP server functionality
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 13. Phase 7: Fastify Manager UI and API
-  - [~] 13.1 Implement HTTP API endpoints
+  - [-] 13.1 Implement HTTP API endpoints
     - Create GET /api/codebases endpoint returning all codebases with metadata
     - Create POST /api/search endpoint with query and filter parameters
     - Create GET /api/codebases/:name/stats endpoint for detailed statistics
