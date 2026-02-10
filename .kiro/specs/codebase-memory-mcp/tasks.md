@@ -47,11 +47,11 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - **Property 26: Structured Logging Levels** - For any log level config, only messages at or above that level should be output
     - **Validates: Requirements 11.1, 11.5**
 
-- [-] 2. Checkpoint - Verify foundations
+- [x] 2. Checkpoint - Verify foundations
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 3. Phase 2: Core Services - ChromaDB and Language Support
-  - [~] 3.1 Initialize ChromaDB client wrapper
+  - [x] 3.1 Initialize ChromaDB client wrapper
     - Create ChromaDB client wrapper with local persistence configuration
     - Implement connection initialization with error handling
     - Add schema version constant (1.0.0)
@@ -66,7 +66,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - Test collection CRUD operations
     - _Requirements: 5.1, 5.2_
 
-  - [~] 3.3 Implement language detection service
+  - [x] 3.3 Implement language detection service
     - Create language support mapping for extensions (.cs, .java, .js, .jsx, .ts, .tsx, .py)
     - Map extensions to Tree-sitter grammar names
     - Implement language detection from file extension
@@ -77,7 +77,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - **Property 18: Language Detection Accuracy** - For any file with known extension, detected language should match extension mapping
     - **Validates: Requirements 6.1**
 
-  - [~] 3.5 Implement file scanner service
+  - [x] 3.5 Implement file scanner service
     - Create recursive file discovery that traverses directories
     - Filter files by supported/unsupported extensions
     - Respect .gitignore patterns and skip hidden directories
@@ -88,7 +88,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - **Property 5: Recursive File Discovery** - For any directory structure, all files in nested subdirectories should be discovered
     - **Validates: Requirements 2.1**
 
-- [~] 4. Checkpoint - Verify core services
+- [-] 4. Checkpoint - Verify core services
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Phase 3: Parsing and Embedding Services

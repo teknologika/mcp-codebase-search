@@ -197,17 +197,29 @@ describe('Configuration Management', () => {
       expect(() => loadConfig(testConfigPath)).toThrow(ConfigValidationError);
     });
 
-    it('should throw ConfigValidationError for missing required fields', () => {
-      const invalidConfig = {
+    it('should use defaults for missing fields in config file', () => {
+      const partialConfig = {
         chromadb: {
-          persistPath: '/path',
+          persistPath: '/custom/path',
         },
-        // Missing other required fields
+        // Missing other fields - should use defaults
       };
 
-      writeFileSync(testConfigPath, JSON.stringify(invalidConfig, null, 2));
+      writeFileSync(testConfigPath, JSON.stringify(partialConfig, null, 2));
 
-      expect(() => loadConfig(testConfigPath)).toThrow(ConfigValidationError);
+      const config = loadConfig(testConfigPath);
+      
+      // Custom value from file
+      expect(config.chromadb.persistPath).toBe('/custom/path');
+      
+      // Defaults for missing fields
+      expect(config.embedding).toEqual(DEFAULT_CONFIG.embedding);
+      expect(config.server).toEqual(DEFAULT_CONFIG.server);
+      expect(config.mcp).toEqual(DEFAULT_CONFIG.mcp);
+      expect(config.ingestion).toEqual(DEFAULT_CONFIG.ingestion);
+      expect(config.search).toEqual(DEFAULT_CONFIG.search);
+      expect(config.logging).toEqual(DEFAULT_CONFIG.logging);
+      expect(config.schemaVersion).toBe(DEFAULT_CONFIG.schemaVersion);
     });
 
     it('should throw ConfigValidationError for negative batch size', () => {
