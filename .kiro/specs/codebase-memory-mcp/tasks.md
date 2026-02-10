@@ -138,22 +138,22 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - Create methods for listing codebases with metadata (name, path, chunk count, file count, last ingestion)
     - Implement codebase statistics retrieval with language distribution and chunk types
     - Add codebase rename functionality with metadata propagation to all chunks
-    - Implement codebase deletion with ChromaDB collection removal
+    - Implement codebase deletion with LanceDB table removal
     - Add chunk set deletion by ingestion timestamp
-    - Query ChromaDB for aggregated statistics
+    - Query LanceDB for aggregated statistics
     - _Requirements: 1.1, 1.3, 7.3, 7.4, 7.5, 7.6, 8.1, 8.3_
 
   - [ ]* 7.2 Write property tests for codebase service
     - **Property 1: Codebase Retrieval Completeness** - For any set of indexed codebases, list_codebases should return all with complete metadata
-    - **Property 4: Statistics Accuracy** - For any codebase, statistics should accurately reflect actual counts in ChromaDB
-    - **Property 17: Codebase Deletion Completeness** - For any codebase, deletion should remove collection and all chunks
+    - **Property 4: Statistics Accuracy** - For any codebase, statistics should accurately reflect actual counts in LanceDB
+    - **Property 17: Codebase Deletion Completeness** - For any codebase, deletion should remove table and all chunks
     - **Property 19: Codebase Rename Propagation** - For any codebase, renaming should update all chunk metadata
     - **Validates: Requirements 1.1, 1.3, 5.5, 7.4, 7.5, 8.4, 8.5**
 
   - [x] 7.3 Implement search service with semantic search
     - Create search method accepting query, optional codebase filter, optional language filter
     - Generate query embedding using embedding service
-    - Query ChromaDB with vector similarity and metadata filters
+    - Query LanceDB with vector similarity and metadata filters
     - Rank results by similarity score in descending order
     - Limit results to configurable maximum (default 50)
     - Format results with all required metadata (file path, line numbers, language, chunk type, content, similarity score, codebase name)
@@ -254,7 +254,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
   - [x] 11.5 Create MCP server entry point
     - Implement mcp-server executable that starts the MCP server
     - Load configuration from environment and config file
-    - Initialize all services (ChromaDB, embedding, codebase, search)
+    - Initialize all services (LanceDB, embedding, codebase, search)
     - Start stdio transport listener
     - Add graceful shutdown handling for SIGINT/SIGTERM
     - Log startup information and configuration
@@ -327,7 +327,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
   - [x] 13.7 Create manager entry point
     - Implement manager executable that starts Fastify server
     - Load configuration from environment and config file
-    - Initialize all services (ChromaDB, codebase, search)
+    - Initialize all services (LanceDB, codebase, search)
     - Start Fastify server on configured port
     - Open default browser to http://localhost:{port}
     - Add graceful shutdown handling

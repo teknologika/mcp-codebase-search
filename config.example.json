@@ -1,6 +1,6 @@
 {
-  "chromadb": {
-    "persistPath": "~/.codebase-memory/chromadb"
+  "lancedb": {
+    "persistPath": "~/.codebase-memory/lancedb"
   },
   "embedding": {
     "modelName": "Xenova/all-MiniLM-L6-v2",

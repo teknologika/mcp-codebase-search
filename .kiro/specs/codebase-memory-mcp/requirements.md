@@ -10,7 +10,7 @@ The Codebase Memory MCP Server is a local-first semantic search system that enab
 - **Ingestion_CLI**: Command-line interface for indexing codebase directories
 - **Manager_UI**: Web-based interface for managing codebases and viewing statistics
 - **Fastify_Server**: HTTP server hosting the Manager_UI and API endpoints
-- **ChromaDB**: Local vector database for storing embeddings and metadata
+- **LanceDB**: Local file-based vector database for storing embeddings and metadata
 - **Tree_Sitter**: Parser generator tool for AST-aware code chunking
 - **Chunk**: A semantically meaningful unit of code (function, class, method) with metadata
 - **Chunk_Set**: A collection of chunks belonging to a specific codebase ingestion
@@ -43,7 +43,7 @@ The Codebase Memory MCP Server is a local-first semantic search system that enab
 2. WHEN a file with a Supported_Language extension is encountered, THE system SHALL parse it using Tree_Sitter and extract semantic chunks
 3. WHEN a file with an Unsupported_Language extension is encountered, THE system SHALL log a warning and skip the file
 4. WHEN chunks are extracted, THE system SHALL generate embeddings using local Hugging Face transformers
-5. WHEN embeddings are generated, THE system SHALL store them in ChromaDB with metadata including file path, line range, language, chunk type, and codebase name
+5. WHEN embeddings are generated, THE system SHALL store them in LanceDB with metadata including file path, line range, language, chunk type, and codebase name
 6. WHEN ingestion completes, THE system SHALL output statistics including total files processed, chunks created, and languages detected
 
 ### Requirement 3: Tree-Sitter Code Chunking
@@ -71,17 +71,17 @@ The Codebase Memory MCP Server is a local-first semantic search system that enab
 4. WHEN the embedding model is not cached locally, THE system SHALL download it once and cache it for future use
 5. THE system SHALL use a consistent embedding model across all ingestion operations to ensure vector compatibility
 
-### Requirement 5: ChromaDB Vector Storage
+### Requirement 5: LanceDB Vector Storage
 
 **User Story:** As a system, I want to persist embeddings and metadata locally, so that search operations are fast and data remains private.
 
 #### Acceptance Criteria
 
-1. WHEN the system starts, THE system SHALL initialize ChromaDB with a local persistence directory
-2. WHEN storing chunks, THE system SHALL create or update collections per codebase
+1. WHEN the system starts, THE system SHALL initialize LanceDB with a local persistence directory
+2. WHEN storing chunks, THE system SHALL create or update tables per codebase
 3. WHEN storing embeddings, THE system SHALL include metadata: file path, start line, end line, language, chunk type, codebase name, and ingestion timestamp
-4. WHEN searching, THE system SHALL query ChromaDB using vector similarity with metadata filters
-5. WHEN a codebase is deleted, THE system SHALL remove its collection from ChromaDB
+4. WHEN searching, THE system SHALL query LanceDB using vector similarity with metadata filters
+5. WHEN a codebase is deleted, THE system SHALL remove its table from LanceDB
 
 ### Requirement 6: Language Support Detection
 
@@ -104,8 +104,8 @@ The Codebase Memory MCP Server is a local-first semantic search system that enab
 1. WHEN the Fastify_Server starts, THE system SHALL serve a single-page web application on a configurable port
 2. WHEN the Manager_UI loads, THE system SHALL display a list of all indexed codebases with their statistics
 3. WHEN a user selects a codebase, THE Manager_UI SHALL display detailed statistics including chunk count, file count, language distribution, and last ingestion date
-4. WHEN a user renames a codebase, THE Manager_UI SHALL update the codebase name in ChromaDB and refresh the display
-5. WHEN a user deletes a codebase, THE Manager_UI SHALL remove all associated chunks from ChromaDB and refresh the display
+4. WHEN a user renames a codebase, THE Manager_UI SHALL update the codebase name in LanceDB and refresh the display
+5. WHEN a user deletes a codebase, THE Manager_UI SHALL remove all associated chunks from LanceDB and refresh the display
 6. WHEN a user deletes a chunk set, THE Manager_UI SHALL remove chunks from a specific ingestion timestamp and refresh the display
 
 ### Requirement 8: HTTP API Endpoints
@@ -141,7 +141,7 @@ The Codebase Memory MCP Server is a local-first semantic search system that enab
 #### Acceptance Criteria
 
 1. WHEN the system starts, THE system SHALL read configuration from environment variables and a config file
-2. THE system SHALL support configuration for: ChromaDB persistence path, embedding model name, Fastify server port, and MCP server transport settings
+2. THE system SHALL support configuration for: LanceDB persistence path, embedding model name, Fastify server port, and MCP server transport settings
 3. WHEN a required configuration value is missing, THE system SHALL use sensible defaults
 4. WHEN an invalid configuration value is provided, THE system SHALL log an error and exit with a non-zero status code
 5. THE system SHALL validate all configuration values at startup
@@ -172,12 +172,12 @@ The Codebase Memory MCP Server is a local-first semantic search system that enab
 
 ### Requirement 13: Schema Versioning
 
-**User Story:** As a system maintainer, I want schema versioning for ChromaDB collections, so that future updates can migrate data without breaking existing installations.
+**User Story:** As a system maintainer, I want schema versioning for LanceDB tables, so that future updates can migrate data without breaking existing installations.
 
 #### Acceptance Criteria
 
-1. WHEN creating a ChromaDB collection, THE system SHALL include a schema version in the collection metadata
-2. WHEN the system starts, THE system SHALL check the schema version of existing collections
+1. WHEN creating a LanceDB table, THE system SHALL include a schema version in the table metadata
+2. WHEN the system starts, THE system SHALL check the schema version of existing tables
 3. WHEN a schema version mismatch is detected, THE system SHALL log a warning and provide migration instructions
 4. THE system SHALL store the current schema version in a constant accessible to all components
 5. WHEN a new schema version is introduced, THE system SHALL document the migration path
