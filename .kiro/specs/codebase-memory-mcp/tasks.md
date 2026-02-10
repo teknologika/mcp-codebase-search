@@ -133,8 +133,8 @@ This implementation plan breaks down the codebase memory MCP server into increme
 - [x] 6. Checkpoint - Verify parsing and embedding
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Phase 4: Codebase and Search Services
-  - [~] 7.1 Implement codebase service for CRUD operations
+- [x] 7. Phase 4: Codebase and Search Services
+  - [x] 7.1 Implement codebase service for CRUD operations
     - Create methods for listing codebases with metadata (name, path, chunk count, file count, last ingestion)
     - Implement codebase statistics retrieval with language distribution and chunk types
     - Add codebase rename functionality with metadata propagation to all chunks
@@ -150,7 +150,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - **Property 19: Codebase Rename Propagation** - For any codebase, renaming should update all chunk metadata
     - **Validates: Requirements 1.1, 1.3, 5.5, 7.4, 7.5, 8.4, 8.5**
 
-  - [~] 7.3 Implement search service with semantic search
+  - [x] 7.3 Implement search service with semantic search
     - Create search method accepting query, optional codebase filter, optional language filter
     - Generate query embedding using embedding service
     - Query ChromaDB with vector similarity and metadata filters
@@ -169,7 +169,7 @@ This implementation plan breaks down the codebase memory MCP server into increme
     - **Property 30: Search Result Limiting** - For any search query, returned results should not exceed configured maximum
     - **Validates: Requirements 1.2, 1.5, 5.4, 12.3, 12.5**
 
-- [~] 8. Checkpoint - Verify codebase and search services
+- [x] 8. Checkpoint - Verify codebase and search services
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 9. Phase 5: Ingestion Pipeline
