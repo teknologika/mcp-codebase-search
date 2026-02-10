@@ -1,0 +1,64 @@
+{
+  "name": "@teknologika/mcp-codebase-search",
+  "version": "0.1.0",
+  "description": "Local-first semantic search system for codebases using MCP protocol",
+  "type": "module",
+  "engines": {
+    "node": ">=23.0.0",
+    "npm": ">=10.0.0"
+  },
+  "bin": {
+    "mcp-server": "./dist/bin/mcp-server.js",
+    "ingest": "./dist/bin/ingest.js",
+    "manager": "./dist/bin/manager.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --watch --env-file=.env src/bin/manager.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --max-warnings 0",
+    "security": "npm audit --audit-level=moderate",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "semantic-search",
+    "codebase",
+    "embeddings",
+    "vector-search",
+    "tree-sitter",
+    "local-first"
+  ],
+  "author": "Teknologika",
+  "license": "MIT",
+  "dependencies": {
+    "chromadb": "^1.8.0",
+    "@huggingface/transformers": "^3.8.1",
+    "tree-sitter": "^0.21.0",
+    "tree-sitter-c-sharp": "^0.21.0",
+    "tree-sitter-java": "^0.21.0",
+    "tree-sitter-javascript": "^0.21.0",
+    "tree-sitter-typescript": "^0.21.0",
+    "tree-sitter-python": "^0.21.0",
+    "fastify": "^4.25.0",
+    "@fastify/helmet": "^11.1.0",
+    "pino": "^8.17.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "fast-check": "^3.15.0",
+    "vitest": "^1.1.0",
+    "@vitest/coverage-v8": "^1.1.0",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.18.0",
+    "@typescript-eslint/parser": "^6.18.0",
+    "typescript": "^5.3.3",
+    "pino-pretty": "^11.0.0"
+  }
+}
