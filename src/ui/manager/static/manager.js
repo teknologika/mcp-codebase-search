@@ -195,3 +195,131 @@ document.addEventListener('DOMContentLoaded', () => {
         helpText.textContent = 'Click "Browse..." to select a folder, or enter path manually';
     }
 });
+
+
+// Ingest form visibility
+function showIngestForm() {
+    const container = document.getElementById('ingestFormContainer');
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
+    // Focus on the name input
+    setTimeout(() => {
+        document.getElementById('codebaseName').focus();
+    }, 300);
+}
+
+function hideIngestForm() {
+    const container = document.getElementById('ingestFormContainer');
+    container.style.display = 'none';
+    
+    // Reset form
+    document.getElementById('ingestForm').reset();
+    
+    // Hide progress if showing
+    document.getElementById('ingestionProgress').style.display = 'none';
+}
+
+// Normalize codebase name (spaces to hyphens, lowercase, alphanumeric only)
+function normalizeCodebaseName(input) {
+    return input
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')  // Replace spaces with hyphens
+        .replace(/[^a-z0-9-_]/g, '')  // Remove invalid characters
+        .replace(/-+/g, '-')  // Replace multiple hyphens with single
+        .replace(/^-|-$/g, '');  // Remove leading/trailing hyphens
+}
+
+// Display name (hyphens/underscores to spaces, title case)
+function displayName(name) {
+    return name
+        .replace(/[-_]/g, ' ')  // Replace hyphens and underscores with spaces
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
+// Auto-normalize codebase name as user types
+document.addEventListener('DOMContentLoaded', () => {
+    const nameInput = document.getElementById('codebaseName');
+    const renameInput = document.getElementById('renameNewName');
+    
+    if (nameInput) {
+        nameInput.addEventListener('input', (e) => {
+            const normalized = normalizeCodebaseName(e.target.value);
+            if (normalized !== e.target.value) {
+                const cursorPos = e.target.selectionStart;
+                e.target.value = normalized;
+                e.target.setSelectionRange(cursorPos, cursorPos);
+            }
+        });
+    }
+    
+    if (renameInput) {
+        renameInput.addEventListener('input', (e) => {
+            const normalized = normalizeCodebaseName(e.target.value);
+            if (normalized !== e.target.value) {
+                const cursorPos = e.target.selectionStart;
+                e.target.value = normalized;
+                e.target.setSelectionRange(cursorPos, cursorPos);
+            }
+        });
+    }
+});
+
+// Ingestion progress simulation (will be replaced with real SSE later)
+function showIngestionProgress(codebaseName) {
+    const progressContainer = document.getElementById('ingestionProgress');
+    const progressBar = document.getElementById('progressBar');
+    const progressPhase = document.getElementById('progressPhase');
+    const progressPercent = document.getElementById('progressPercent');
+    const progressDetails = document.getElementById('progressDetails');
+    
+    progressContainer.style.display = 'block';
+    
+    // Disable form
+    document.getElementById('ingestForm').querySelectorAll('input, button').forEach(el => {
+        el.disabled = true;
+    });
+    
+    // Simulate progress (replace with real SSE implementation)
+    let progress = 0;
+    const phases = [
+        { name: 'Scanning files', duration: 2000 },
+        { name: 'Parsing code', duration: 3000 },
+        { name: 'Generating embeddings', duration: 4000 },
+        { name: 'Storing in database', duration: 2000 }
+    ];
+    
+    let currentPhase = 0;
+    
+    function updateProgress() {
+        if (currentPhase >= phases.length) {
+            progressBar.style.width = '100%';
+            progressPercent.textContent = '100%';
+            progressPhase.textContent = 'Complete!';
+            progressDetails.textContent = `Successfully ingested ${codebaseName}`;
+            
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+            return;
+        }
+        
+        const phase = phases[currentPhase];
+        progressPhase.textContent = phase.name;
+        
+        const phaseProgress = (currentPhase / phases.length) * 100;
+        progressBar.style.width = phaseProgress + '%';
+        progressPercent.textContent = Math.round(phaseProgress) + '%';
+        progressDetails.textContent = `${phase.name}...`;
+        
+        setTimeout(() => {
+            currentPhase++;
+            updateProgress();
+        }, phase.duration);
+    }
+    
+    updateProgress();
+}

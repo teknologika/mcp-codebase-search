@@ -511,3 +511,37 @@ code {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+
+/* Hero Search Styles */
+.hero-search {
+    background: linear-gradient(135deg, var(--accent-light) 0%, transparent 100%);
+    border: 2px solid var(--accent);
+}
+
+.hero-search .card-title {
+    color: var(--text-primary);
+}
+
+.hero-search .btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+/* Progress Bar Styles */
+#ingestionProgress {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

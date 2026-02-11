@@ -176,8 +176,17 @@ export async function registerManagerRoutes(
         return reply.redirect('/');
       }
       
-      if (!/^[a-zA-Z0-9-_]+$/.test(name)) {
-        (request as any).flash('message', 'Codebase name can only contain letters, numbers, hyphens, and underscores');
+      // Normalize name: spaces to hyphens, lowercase, alphanumeric only
+      const normalizedName = name
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-_]/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      
+      if (!normalizedName) {
+        (request as any).flash('message', 'Codebase name must contain at least one alphanumeric character');
         (request as any).flash('messageType', 'error');
         return reply.redirect('/');
       }
@@ -212,9 +221,24 @@ export async function registerManagerRoutes(
         return reply.redirect('/');
       }
       
-      await codebaseService.renameCodebase(oldName, newName);
+      // Normalize new name: spaces to hyphens, lowercase, alphanumeric only
+      const normalizedNewName = newName
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-_]/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
       
-      (request as any).flash('message', `Renamed ${oldName} to ${newName}`);
+      if (!normalizedNewName) {
+        (request as any).flash('message', 'New name must contain at least one alphanumeric character');
+        (request as any).flash('messageType', 'error');
+        return reply.redirect('/');
+      }
+      
+      await codebaseService.renameCodebase(oldName, normalizedNewName);
+      
+      (request as any).flash('message', `Renamed ${oldName} to ${normalizedNewName}`);
       (request as any).flash('messageType', 'success');
       return reply.redirect('/');
     } catch (error) {

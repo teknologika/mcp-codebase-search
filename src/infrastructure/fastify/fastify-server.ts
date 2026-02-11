@@ -127,6 +127,16 @@ export class FastifyServer {
 
     // Register Handlebars helpers
     handlebars.registerHelper('eq', (a: any, b: any) => a === b);
+    handlebars.registerHelper('toFixed', (value: number, decimals: number) => value.toFixed(decimals));
+    handlebars.registerHelper('urlEncode', (value: string) => encodeURIComponent(value));
+    handlebars.registerHelper('displayName', (name: string) => {
+      // Convert hyphens/underscores to spaces and title case
+      return name
+        .replace(/[-_]/g, ' ')
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    });
 
     // Add global error handler
     this.fastify.setErrorHandler((error, request, reply) => {
