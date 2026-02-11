@@ -8,7 +8,7 @@
  * - Performance logging for slow operations (>500ms)
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { HuggingFaceEmbeddingService } from '../../embedding/embedding.service.js';
 import { SearchService } from '../../search/search.service.js';
 import { IngestionService } from '../ingestion.service.js';
@@ -177,9 +177,7 @@ describe('Performance Optimizations', () => {
       // Create 25 texts (should be processed in 3 batches: 10, 10, 5)
       const texts = Array.from({ length: 25 }, (_, i) => `text ${i}`);
       
-      const start = Date.now();
       const embeddings = await embeddingService.batchGenerateEmbeddings(texts);
-      const duration = Date.now() - start;
       
       // Should get embeddings for all texts
       expect(embeddings).toHaveLength(25);
@@ -190,7 +188,7 @@ describe('Performance Optimizations', () => {
       });
       
       // Verify batching is efficient
-      console.log(`Batch processing 25 texts took ${duration}ms`);
+      // Batch processing 25 texts completed
     });
 
     it('should handle empty batch gracefully', async () => {

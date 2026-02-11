@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import Ajv from 'ajv';
-import addFormats from 'ajv-formats';
+import AjvModule from 'ajv';
+import addFormatsModule from 'ajv-formats';
 import {
   LIST_CODEBASES_SCHEMA,
   SEARCH_CODEBASES_SCHEMA,
@@ -15,6 +15,10 @@ import {
   OPEN_CODEBASE_MANAGER_SCHEMA,
   ALL_TOOL_SCHEMAS,
 } from '../tool-schemas.js';
+
+// Get the constructors - handle both ESM and CJS
+const Ajv = (AjvModule as any).default || AjvModule;
+const addFormats = (addFormatsModule as any).default || addFormatsModule;
 
 describe('MCP Tool Schemas', () => {
   const ajv = new Ajv({ allErrors: true, strict: true });
@@ -417,7 +421,7 @@ describe('MCP Tool Schemas', () => {
     it('should have descriptions for all input parameters', () => {
       for (const schema of ALL_TOOL_SCHEMAS) {
         const properties = schema.inputSchema.properties;
-        for (const [key, value] of Object.entries(properties)) {
+        for (const value of Object.values(properties)) {
           expect(value).toHaveProperty('description');
           expect((value as any).description).toBeTruthy();
           expect((value as any).description.length).toBeGreaterThan(5);
@@ -428,7 +432,7 @@ describe('MCP Tool Schemas', () => {
     it('should have descriptions for all output properties', () => {
       for (const schema of ALL_TOOL_SCHEMAS) {
         const properties = schema.outputSchema.properties;
-        for (const [key, value] of Object.entries(properties)) {
+        for (const value of Object.values(properties)) {
           expect(value).toHaveProperty('description');
           expect((value as any).description).toBeTruthy();
           expect((value as any).description.length).toBeGreaterThan(5);

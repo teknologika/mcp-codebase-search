@@ -67,7 +67,14 @@ async function main() {
 
     // Initialize embedding service (lazy - will initialize on first use)
     const embeddingService = new HuggingFaceEmbeddingService(config, silentLogger);
-    // Don't initialize yet - let it initialize on first use to avoid blocking startup
+    
+    // Initialize the embedding service to ensure it's ready for searches
+    try {
+      await embeddingService.initialize();
+    } catch (error) {
+      // Log to stderr but don't fail - embedding service will retry on first use
+      console.error('Warning: Failed to initialize embedding service on startup:', error);
+    }
 
     // Initialize codebase service
     const codebaseService = new CodebaseService(lanceClient, config);
@@ -94,8 +101,12 @@ async function main() {
       }
     };
 
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => {
+      void shutdown('SIGINT');
+    });
+    process.on('SIGTERM', () => {
+      void shutdown('SIGTERM');
+    });
 
     // Start the server
     await mcpServer.start();

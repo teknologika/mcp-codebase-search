@@ -55,7 +55,7 @@ describe('HuggingFaceEmbeddingService', () => {
     };
 
     // Create mock pipeline
-    mockPipeline = vi.fn(async (text: string) => ({
+    mockPipeline = vi.fn(async (_text: string) => ({
       data: new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5]),
     }));
 

@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { LanguageDetectionService, LANGUAGE_SUPPORT, TREE_SITTER_GRAMMARS } from '../language-detection.service.js';
-import type { Language } from '../../../shared/types/index.js';
 
 describe('LanguageDetectionService', () => {
   let service: LanguageDetectionService;

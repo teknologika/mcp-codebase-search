@@ -243,9 +243,9 @@ export class TreeSitterParsingService {
     language: Language
   ): { text: string; startLine: number; endLine: number } {
     let startByte = node.startIndex;
-    let endByte = node.endIndex;
+    const endByte = node.endIndex;
     let startLine = node.startPosition.row + 1; // Convert to 1-based
-    let endLine = node.endPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
 
     // Look for preceding comments or docstrings
     const precedingContext = this.getPrecedingContext(node, sourceCode, language);
