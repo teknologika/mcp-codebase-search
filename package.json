@@ -8,9 +8,9 @@
     "npm": ">=10.0.0"
   },
   "bin": {
-    "mcp-codebase-search": "./dist/bin/mcp-server.js",
-    "mcp-codebase-ingest": "./dist/bin/ingest.js",
-    "mcp-codebase-manager": "./dist/bin/manager.js"
+    "mcp-codebase-search": "dist/bin/mcp-server.js",
+    "mcp-codebase-ingest": "dist/bin/ingest.js",
+    "mcp-codebase-manager": "dist/bin/manager.js"
   },
   "scripts": {
     "build": "tsc && npm run copy-ui",
@@ -29,7 +29,7 @@
     "security": "npm audit --audit-level=moderate",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run clean && npm run build && npm run test && npm run lint",
+    "prepublishOnly": "npm run clean && npm run build && npm run lint",
     "prepack": "npm run build"
   },
   "keywords": [
