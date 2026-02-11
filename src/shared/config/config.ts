@@ -295,10 +295,11 @@ function expandConfigPaths(config: Config): Config {
  * 
  * Configuration is loaded in the following order (later sources override earlier ones):
  * 1. Default values
- * 2. Configuration file (if provided)
- * 3. Environment variables
+ * 2. Configuration file from default location (~/.codebase-memory/config.json) if it exists
+ * 3. Configuration file (if explicitly provided via configPath parameter)
+ * 4. Environment variables
  * 
- * @param configPath - Optional path to configuration file
+ * @param configPath - Optional path to configuration file (overrides default location)
  * @returns Validated configuration object
  * @throws ConfigValidationError if configuration is invalid
  */
@@ -306,7 +307,19 @@ export function loadConfig(configPath?: string): Config {
   // Start with defaults
   let config: Config = { ...DEFAULT_CONFIG };
 
-  // Merge config file if provided
+  // Try to load from default location first
+  const defaultConfigPath = join(homedir(), '.codebase-memory', 'config.json');
+  if (!configPath && existsSync(defaultConfigPath)) {
+    try {
+      const fileConfig = loadConfigFile(defaultConfigPath);
+      config = deepMerge(config, fileConfig);
+    } catch (error) {
+      // Ignore errors from default config file - it's optional
+      console.warn(`Warning: Failed to load default config from ${defaultConfigPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Merge config file if explicitly provided
   if (configPath) {
     const fileConfig = loadConfigFile(configPath);
     config = deepMerge(config, fileConfig);

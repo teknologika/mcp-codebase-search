@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { CodebaseService } from '../../domains/codebase/codebase.service.js';
 import type { SearchService } from '../../domains/search/search.service.js';
+import type { IngestionService } from '../../domains/ingestion/ingestion.service.js';
 import type { Config } from '../../shared/types/index.js';
 import { registerRoutes } from './routes.js';
 import { registerManagerRoutes } from './manager-routes.js';
@@ -46,15 +47,18 @@ export class FastifyServer {
   private config: Config;
   private codebaseService: CodebaseService;
   private searchService: SearchService;
+  private ingestionService: IngestionService;
   private isRunning = false;
 
   constructor(
     codebaseService: CodebaseService,
     searchService: SearchService,
+    ingestionService: IngestionService,
     config: Config
   ) {
     this.codebaseService = codebaseService;
     this.searchService = searchService;
+    this.ingestionService = ingestionService;
     this.config = config;
 
     // Create Fastify instance with Pino logger
@@ -137,6 +141,25 @@ export class FastifyServer {
         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
     });
+    handlebars.registerHelper('daysSince', (dateString: string) => {
+      if (!dateString) return 'Unknown';
+      try {
+        const date = new Date(dateString);
+        // Check if date is valid
+        if (isNaN(date.getTime())) return 'Unknown';
+        
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 0) return 'Today';
+        if (diffDays === 1) return '1 day ago';
+        if (diffDays < 0) return 'Unknown'; // Future date
+        return `${diffDays} days ago`;
+      } catch (error) {
+        return 'Unknown';
+      }
+    });
 
     // Add global error handler
     this.fastify.setErrorHandler((error, request, reply) => {
@@ -155,7 +178,7 @@ export class FastifyServer {
 
     // Register Manager UI routes (SSR)
     this.fastify.register(async (instance) => {
-      await registerManagerRoutes(instance, this.codebaseService, this.searchService);
+      await registerManagerRoutes(instance, this.codebaseService, this.searchService, this.ingestionService, this.config);
     });
 
     // Register API routes

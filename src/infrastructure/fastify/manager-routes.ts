@@ -6,10 +6,28 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CodebaseService } from '../../domains/codebase/codebase.service.js';
 import type { SearchService } from '../../domains/search/search.service.js';
+import type { IngestionService } from '../../domains/ingestion/ingestion.service.js';
+import type { Config } from '../../shared/types/index.js';
 import { createLogger } from '../../shared/logging/index.js';
+import { randomUUID } from 'node:crypto';
 
 const rootLogger = createLogger('info');
 const logger = rootLogger.child('ManagerRoutes');
+
+/**
+ * Ingestion job tracking
+ */
+interface IngestionJob {
+  id: string;
+  codebaseName: string;
+  phase: string;
+  current: number;
+  total: number;
+  status: 'running' | 'completed' | 'failed';
+  error?: string;
+}
+
+const ingestionJobs = new Map<string, IngestionJob>();
 
 /**
  * Register Manager UI routes
@@ -17,7 +35,9 @@ const logger = rootLogger.child('ManagerRoutes');
 export async function registerManagerRoutes(
   fastify: FastifyInstance,
   codebaseService: CodebaseService,
-  searchService: SearchService
+  searchService: SearchService,
+  ingestionService: IngestionService,
+  config: Config
 ): Promise<void> {
   /**
    * GET /browse-folders
@@ -71,6 +91,8 @@ export async function registerManagerRoutes(
     try {
       logger.info('GET /');
       const codebases = await codebaseService.listCodebases();
+      
+      logger.debug('Codebases loaded', { count: codebases.length, codebases: codebases.map(c => ({ name: c.name, fileCount: c.fileCount, lastIngestion: c.lastIngestion })) });
       
       // Get flash messages using reply.flash()
       const flashMessages = (reply as any).flash();
@@ -161,19 +183,20 @@ export async function registerManagerRoutes(
 
   /**
    * POST /ingest
-   * Ingest new codebase
+   * Start codebase ingestion (returns job ID immediately)
    */
   fastify.post('/ingest', async (request: FastifyRequest, reply: FastifyReply) => {
     const { name, path } = request.body as { name: string; path: string };
     
     try {
-      logger.info('POST /ingest', { name, path });
+      logger.info('POST /ingest - received request', { name, path, body: request.body });
       
       // Validation
       if (!name || !path) {
-        (request as any).flash('message', 'Codebase name and path are required');
-        (request as any).flash('messageType', 'error');
-        return reply.redirect('/');
+        logger.warn('POST /ingest - missing name or path', { name, path });
+        return reply.status(400).send({
+          error: 'Codebase name and path are required'
+        });
       }
       
       // Normalize name: spaces to hyphens, lowercase, alphanumeric only
@@ -185,25 +208,149 @@ export async function registerManagerRoutes(
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '');
       
+      logger.info('POST /ingest - normalized name', { originalName: name, normalizedName });
+      
       if (!normalizedName) {
-        (request as any).flash('message', 'Codebase name must contain at least one alphanumeric character');
-        (request as any).flash('messageType', 'error');
-        return reply.redirect('/');
+        logger.warn('POST /ingest - normalized name is empty', { originalName: name });
+        return reply.status(400).send({
+          error: 'Codebase name must contain at least one alphanumeric character'
+        });
       }
       
-      // Note: Ingestion service needs to be injected
-      // For now, show a message that ingestion is not yet implemented
-      (request as any).flash('message', 'Ingestion feature coming soon - use CLI for now');
-      (request as any).flash('messageType', 'warning');
-      return reply.redirect('/');
+      // Verify path exists
+      const fs = await import('node:fs/promises');
+      try {
+        const stats = await fs.stat(path);
+        if (!stats.isDirectory()) {
+          logger.warn('POST /ingest - path is not a directory', { path });
+          return reply.status(400).send({
+            error: 'Path must be a directory'
+          });
+        }
+      } catch (error) {
+        logger.warn('POST /ingest - path does not exist', { path, error: error instanceof Error ? error.message : String(error) });
+        return reply.status(400).send({
+          error: 'Path does not exist or is not accessible'
+        });
+      }
+      
+      // Create job ID
+      const jobId = randomUUID();
+      
+      logger.info('POST /ingest - starting ingestion', { jobId, normalizedName, path });
+      
+      // Initialize job tracking
+      ingestionJobs.set(jobId, {
+        id: jobId,
+        codebaseName: normalizedName,
+        phase: 'Starting',
+        current: 0,
+        total: 1,
+        status: 'running'
+      });
+      
+      // Start ingestion in background
+      ingestionService.ingestCodebase(
+        { name: normalizedName, path, config },
+        (phase: string, current: number, total: number) => {
+          const job = ingestionJobs.get(jobId);
+          if (job) {
+            job.phase = phase;
+            job.current = current;
+            job.total = total;
+          }
+        }
+      ).then(() => {
+        const job = ingestionJobs.get(jobId);
+        if (job) {
+          job.status = 'completed';
+          job.phase = 'Complete';
+          job.current = job.total;
+        }
+        logger.info('Ingestion completed', { jobId, codebaseName: normalizedName });
+      }).catch((error) => {
+        const job = ingestionJobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.error = error instanceof Error ? error.message : String(error);
+        }
+        logger.error('Ingestion failed', error instanceof Error ? error : new Error(String(error)), { jobId, codebaseName: normalizedName });
+      });
+      
+      // Return job ID immediately
+      logger.info('POST /ingest - returning job ID', { jobId });
+      return reply.send({ jobId });
       
     } catch (error) {
-      logger.error('Ingestion failed', error instanceof Error ? error : new Error(String(error)), { name, path });
-      (request as any).flash('message', `Ingestion failed: ${error instanceof Error ? error.message : String(error)}`);
-      (request as any).flash('messageType', 'error');
-      return reply.redirect('/');
+      logger.error('Failed to start ingestion', error instanceof Error ? error : new Error(String(error)), { name, path });
+      return reply.status(500).send({
+        error: `Failed to start ingestion: ${error instanceof Error ? error.message : String(error)}`
+      });
     }
   });
+
+  /**
+   * GET /ingest-progress/:jobId
+   * Stream ingestion progress via Server-Sent Events
+   */
+  fastify.get<{ Params: { jobId: string } }>(
+    '/ingest-progress/:jobId',
+    async (request: FastifyRequest<{ Params: { jobId: string } }>, reply: FastifyReply) => {
+      const { jobId } = request.params;
+      
+      logger.info('GET /ingest-progress/:jobId', { jobId });
+      
+      const job = ingestionJobs.get(jobId);
+      if (!job) {
+        return reply.status(404).send({ error: 'Job not found' });
+      }
+      
+      // Set up SSE headers
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+      
+      // Send initial progress
+      const sendProgress = () => {
+        const currentJob = ingestionJobs.get(jobId);
+        if (!currentJob) return false;
+        
+        const data = JSON.stringify({
+          phase: currentJob.phase,
+          current: currentJob.current,
+          total: currentJob.total,
+          status: currentJob.status,
+          error: currentJob.error
+        });
+        
+        reply.raw.write(`data: ${data}\n\n`);
+        
+        return currentJob.status === 'running';
+      };
+      
+      // Send progress updates every 500ms
+      const interval = setInterval(() => {
+        const shouldContinue = sendProgress();
+        if (!shouldContinue) {
+          clearInterval(interval);
+          // Clean up job after 5 seconds
+          setTimeout(() => {
+            ingestionJobs.delete(jobId);
+            logger.info('Cleaned up ingestion job', { jobId });
+          }, 5000);
+          reply.raw.end();
+        }
+      }, 500);
+      
+      // Handle client disconnect
+      request.raw.on('close', () => {
+        clearInterval(interval);
+        logger.info('Client disconnected from SSE', { jobId });
+      });
+    }
+  );
 
   /**
    * POST /rename

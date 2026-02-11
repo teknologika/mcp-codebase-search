@@ -21,6 +21,7 @@ import { LanceDBClientWrapper } from '../infrastructure/lancedb/lancedb.client.j
 import { HuggingFaceEmbeddingService } from '../domains/embedding/index.js';
 import { CodebaseService } from '../domains/codebase/codebase.service.js';
 import { SearchService } from '../domains/search/search.service.js';
+import { IngestionService } from '../domains/ingestion/ingestion.service.js';
 import { FastifyServer } from '../infrastructure/fastify/fastify-server.js';
 
 const execAsync = promisify(exec);
@@ -112,10 +113,19 @@ async function main() {
       config
     );
 
+    // Initialize ingestion service
+    mainLogger.info('Initializing ingestion service');
+    const ingestionService = new IngestionService(
+      embeddingService,
+      lanceClient,
+      config
+    );
+
     // Create Fastify server
     const fastifyServer = new FastifyServer(
       codebaseService,
       searchService,
+      ingestionService,
       config
     );
 
