@@ -200,7 +200,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // Ingest form visibility
 function showIngestForm() {
     const container = document.getElementById('ingestFormContainer');
+    const codebasesList = document.getElementById('codebasesList');
+    const codebasesHeader = document.getElementById('codebasesHeader');
+    
     container.style.display = 'block';
+    if (codebasesList) {
+        codebasesList.style.display = 'none';
+    }
+    if (codebasesHeader) {
+        codebasesHeader.style.display = 'none';
+    }
+    
     container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     
     // Focus on the name input
@@ -211,7 +221,16 @@ function showIngestForm() {
 
 function hideIngestForm() {
     const container = document.getElementById('ingestFormContainer');
+    const codebasesList = document.getElementById('codebasesList');
+    const codebasesHeader = document.getElementById('codebasesHeader');
+    
     container.style.display = 'none';
+    if (codebasesList) {
+        codebasesList.style.display = 'block';
+    }
+    if (codebasesHeader) {
+        codebasesHeader.style.display = 'flex';
+    }
     
     // Reset form
     document.getElementById('ingestForm').reset();
@@ -323,3 +342,35 @@ function showIngestionProgress(codebaseName) {
     
     updateProgress();
 }
+
+
+// Tab switching
+function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.closest('.tab-btn').classList.add('active');
+    
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    
+    if (tabName === 'search') {
+        document.getElementById('searchTab').classList.add('active');
+    } else if (tabName === 'manage') {
+        document.getElementById('manageTab').classList.add('active');
+    }
+}
+
+// Auto-switch to manage tab if there's a flash message (after add/rename/delete)
+document.addEventListener('DOMContentLoaded', () => {
+    const alert = document.querySelector('.alert');
+    if (alert && !document.querySelector('#searchTab .search-result')) {
+        // If there's an alert but no search results, switch to manage tab
+        switchTab('manage');
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-btn')[1].classList.add('active');
+    }
+});

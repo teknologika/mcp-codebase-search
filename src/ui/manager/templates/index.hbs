@@ -9,6 +9,27 @@
 <div class="alert alert-{{messageType}}">{{message}}</div>
 {{/if}}
 
+<!-- Tab Navigation -->
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('search')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px;">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+        </svg>
+        Search
+    </button>
+    <button class="tab-btn" onclick="switchTab('manage')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px;">
+            <path d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+        </svg>
+        Manage Codebases
+        <span class="badge badge-blue" style="margin-left: 0.5rem;">{{codebases.length}}</span>
+    </button>
+</div>
+
+<!-- Search Tab Content -->
+<div id="searchTab" class="tab-content active">
+
 <!-- Hero Search Section -->
 <div class="card hero-search">
     <div class="card-header">
@@ -95,10 +116,13 @@
     {{/if}}
     {{/if}}
 </div>
+</div>
 
+<!-- Manage Codebases Tab Content -->
+<div id="manageTab" class="tab-content">
 <!-- Codebases Section -->
 <div style="margin-top: 2rem;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;" id="codebasesHeader">
         <h2 style="font-size: 1.25rem; font-weight: 600;">Your Codebases</h2>
         <button type="button" class="btn btn-primary" onclick="showIngestForm()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;">
@@ -109,7 +133,7 @@
         </button>
     </div>
 
-    <div class="card">
+    <div class="card" id="codebasesList">
         {{#if codebases.length}}
         <table>
             <thead>
@@ -212,6 +236,7 @@
             Preparing to ingest codebase...
         </p>
     </div>
+</div>
 </div>
 
 <!-- Rename Modal -->
