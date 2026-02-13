@@ -1,6 +1,6 @@
 {
   "name": "@teknologika/mcp-codebase-search",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local-first semantic search system for codebases using MCP protocol with Tree-sitter parsing and ChromaDB vector storage",
   "type": "module",
   "engines": {
