@@ -13,7 +13,7 @@
  * Requirements: 2.1, 2.3, 2.5, 2.6, 6.2, 6.3, 12.4, 14.1, 14.2, 14.3
  */
 
-import type { Config, IngestionParams, IngestionStats, LanguageStats, Chunk } from '../../shared/types/index.js';
+import type { Config, IngestionParams, IngestionStats, LanguageStats, Chunk, RescanResult } from '../../shared/types/index.js';
 import { FileScannerService, type ScannedFile } from './file-scanner.service.js';
 import { TreeSitterParsingService } from '../parsing/tree-sitter-parsing.service.js';
 import type { EmbeddingService } from '../embedding/embedding.service.js';
@@ -21,6 +21,7 @@ import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.clien
 import { createLogger, startTimer, logMemoryUsage } from '../../shared/logging/index.js';
 import type { Logger } from '../../shared/logging/logger.js';
 import { classifyFile } from '../../shared/utils/file-classification.js';
+import { calculateFileHash } from '../../shared/utils/file-hash.js';
 
 const rootLogger = createLogger('info');
 
@@ -143,6 +144,9 @@ export class IngestionService {
             continue;
           }
 
+          // Calculate file hash for change detection
+          const fileHash = await calculateFileHash(file.path);
+
           const chunks = await this.parser.parseFile(file.path, file.language as any);
           
           // Classify file and add metadata to chunks
@@ -151,6 +155,7 @@ export class IngestionService {
             ...chunk,
             isTestFile: classification.isTest,
             isLibraryFile: classification.isLibrary,
+            fileHash,
           }));
           
           allChunks.push(...chunksWithMetadata);
@@ -168,6 +173,7 @@ export class IngestionService {
             filePath: file.relativePath,
             language: file.language,
             chunkCount: chunks.length,
+            fileHash,
           });
         } catch (error) {
           // Log error but continue with other files
@@ -411,6 +417,7 @@ export class IngestionService {
         chunkType: chunk.chunkType || 'unknown',
         isTestFile: chunk.isTestFile || false,
         isLibraryFile: chunk.isLibraryFile || false,
+        fileHash: chunk.fileHash || '',
         ingestionTimestamp,
         _codebaseName: codebaseName,
         _path: codebasePath,
@@ -527,5 +534,265 @@ export class IngestionService {
     }
 
     return result;
+  }
+
+  /**
+   * Rescan a codebase to detect and process only changed files
+   * Performs incremental update by comparing file hashes
+   * 
+   * @param codebaseName - Name of the codebase to rescan
+   * @param codebasePath - Path to the codebase directory
+   * @param progressCallback - Optional callback for progress updates
+   * @returns Statistics about the rescan operation
+   */
+  async rescanCodebase(
+    codebaseName: string,
+    codebasePath: string,
+    progressCallback?: ProgressCallback
+  ): Promise<RescanResult> {
+    const overallTimer = startTimer('rescanCodebase', this.logger, { codebaseName });
+
+    this.logger.info('Starting incremental codebase rescan', {
+      codebaseName,
+      codebasePath,
+    });
+
+    try {
+      // Phase 1: Get stored file hashes from database
+      this.logger.info('Phase 1: Retrieving stored file hashes');
+      progressCallback?.('Retrieving stored hashes', 0, 1);
+
+      const table = await this.lanceClient.getOrCreateTable(codebaseName);
+      if (!table) {
+        throw new IngestionError(`Codebase '${codebaseName}' not found`);
+      }
+
+      const rows = await table.query().toArray();
+      const storedFileMap = new Map<string, { hash: string; chunkCount: number }>();
+
+      for (const row of rows) {
+        const filePath = row.filePath || '';
+        if (!filePath) continue;
+
+        if (!storedFileMap.has(filePath)) {
+          storedFileMap.set(filePath, {
+            hash: row.fileHash || '',
+            chunkCount: 0,
+          });
+        }
+        storedFileMap.get(filePath)!.chunkCount++;
+      }
+
+      this.logger.info('Stored file hashes retrieved', {
+        storedFileCount: storedFileMap.size,
+      });
+
+      // Phase 2: Scan filesystem for current files
+      this.logger.info('Phase 2: Scanning filesystem');
+      progressCallback?.('Scanning filesystem', 0, 1);
+
+      const { files } = await this.fileScanner.scanDirectory(codebasePath, {
+        respectGitignore: true,
+        skipHiddenDirectories: true,
+        maxFileSize: this.config.ingestion.maxFileSize,
+      });
+
+      const supportedFiles = this.fileScanner.getSupportedFiles(files);
+
+      // Phase 3: Calculate current file hashes and compare
+      this.logger.info('Phase 3: Calculating file hashes and detecting changes');
+      progressCallback?.('Detecting changes', 0, supportedFiles.length);
+
+      const currentFileMap = new Map<string, string>(); // filePath -> hash
+      const addedFiles: typeof supportedFiles = [];
+      const modifiedFiles: typeof supportedFiles = [];
+      const unchangedFiles: typeof supportedFiles = [];
+
+      for (let i = 0; i < supportedFiles.length; i++) {
+        const file = supportedFiles[i];
+        progressCallback?.('Detecting changes', i + 1, supportedFiles.length);
+
+        try {
+          const currentHash = await calculateFileHash(file.path);
+          currentFileMap.set(file.relativePath, currentHash);
+
+          const storedFile = storedFileMap.get(file.relativePath);
+
+          if (!storedFile) {
+            // New file
+            addedFiles.push(file);
+            this.logger.debug('File added', { filePath: file.relativePath });
+          } else if (storedFile.hash !== currentHash) {
+            // Modified file
+            modifiedFiles.push(file);
+            this.logger.debug('File modified', {
+              filePath: file.relativePath,
+              oldHash: storedFile.hash,
+              newHash: currentHash,
+            });
+          } else {
+            // Unchanged file
+            unchangedFiles.push(file);
+          }
+        } catch (error) {
+          this.logger.warn('Failed to hash file, skipping', {
+            filePath: file.relativePath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      // Detect deleted files
+      const deletedFiles: string[] = [];
+      for (const [filePath] of storedFileMap) {
+        if (!currentFileMap.has(filePath)) {
+          deletedFiles.push(filePath);
+          this.logger.debug('File deleted', { filePath });
+        }
+      }
+
+      this.logger.info('Change detection completed', {
+        added: addedFiles.length,
+        modified: modifiedFiles.length,
+        deleted: deletedFiles.length,
+        unchanged: unchangedFiles.length,
+      });
+
+      // Phase 4: Delete chunks for modified and deleted files
+      let chunksDeleted = 0;
+
+      if (modifiedFiles.length > 0 || deletedFiles.length > 0) {
+        this.logger.info('Phase 4: Deleting chunks for changed files');
+        const filesToDelete = [
+          ...modifiedFiles.map(f => f.relativePath),
+          ...deletedFiles,
+        ];
+
+        for (const filePath of filesToDelete) {
+          const storedFile = storedFileMap.get(filePath);
+          if (storedFile) {
+            chunksDeleted += storedFile.chunkCount;
+          }
+
+          // Delete chunks using SQL-like filter
+          const escapedPath = filePath.replace(/'/g, "''");
+          await table.delete(`\`filePath\` = '${escapedPath}'`);
+
+          this.logger.debug('Deleted chunks for file', {
+            filePath,
+            chunkCount: storedFile?.chunkCount || 0,
+          });
+        }
+
+        this.logger.info('Chunks deleted', { chunksDeleted });
+      }
+
+      // Phase 5: Process added and modified files
+      const filesToProcess = [...addedFiles, ...modifiedFiles];
+      let chunksAdded = 0;
+
+      if (filesToProcess.length > 0) {
+        this.logger.info('Phase 5: Processing changed files', {
+          fileCount: filesToProcess.length,
+        });
+
+        const allChunks: Chunk[] = [];
+        const ingestionTimestamp = new Date().toISOString();
+
+        for (let i = 0; i < filesToProcess.length; i++) {
+          const file = filesToProcess[i];
+          progressCallback?.('Processing files', i + 1, filesToProcess.length);
+
+          try {
+            if (!file.language) continue;
+
+            const fileHash = await calculateFileHash(file.path);
+            const chunks = await this.parser.parseFile(file.path, file.language as any);
+
+            const classification = classifyFile(file.relativePath);
+            const chunksWithMetadata = chunks.map(chunk => ({
+              ...chunk,
+              isTestFile: classification.isTest,
+              isLibraryFile: classification.isLibrary,
+              fileHash,
+            }));
+
+            allChunks.push(...chunksWithMetadata);
+          } catch (error) {
+            this.logger.error(
+              'Failed to parse file, skipping',
+              error instanceof Error ? error : new Error(String(error)),
+              { filePath: file.relativePath }
+            );
+          }
+        }
+
+        // Generate embeddings
+        if (allChunks.length > 0) {
+          this.logger.info('Generating embeddings for new chunks', {
+            chunkCount: allChunks.length,
+          });
+
+          const chunksWithEmbeddings = await this.generateEmbeddingsBatch(
+            allChunks,
+            progressCallback
+          );
+
+          // Store chunks
+          this.logger.info('Storing new chunks');
+          await this.storeChunks(
+            codebaseName,
+            codebasePath,
+            chunksWithEmbeddings,
+            ingestionTimestamp,
+            new Map(),
+            filesToProcess.length,
+            progressCallback
+          );
+
+          chunksAdded = allChunks.length;
+        }
+      }
+
+      const durationMs = overallTimer.end();
+
+      const result: RescanResult = {
+        codebaseName,
+        filesScanned: supportedFiles.length,
+        filesAdded: addedFiles.length,
+        filesModified: modifiedFiles.length,
+        filesDeleted: deletedFiles.length,
+        filesUnchanged: unchangedFiles.length,
+        chunksAdded,
+        chunksDeleted,
+        durationMs,
+      };
+
+      this.logger.info('Rescan completed successfully', {
+        codebaseName,
+        filesScanned: result.filesScanned,
+        filesAdded: result.filesAdded,
+        filesModified: result.filesModified,
+        filesDeleted: result.filesDeleted,
+        filesUnchanged: result.filesUnchanged,
+        chunksAdded: result.chunksAdded,
+        chunksDeleted: result.chunksDeleted,
+        durationMs: result.durationMs,
+      });
+
+      return result;
+    } catch (error) {
+      overallTimer.end();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Rescan failed',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName, codebasePath }
+      );
+      throw new IngestionError(
+        `Failed to rescan codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
   }
 }

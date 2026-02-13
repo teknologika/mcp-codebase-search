@@ -64,7 +64,7 @@ export interface Chunk {
   filePath: string;
   isTestFile?: boolean;
   isLibraryFile?: boolean;
-  fileHash: string; // MD5 hash of the source file
+  fileHash?: string; // MD5 hash of the source file (added during ingestion)
 }
 
 /**

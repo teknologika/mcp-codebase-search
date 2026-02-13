@@ -759,3 +759,185 @@ function escapeHtml(text) {
 function escapeJs(text) {
     return text.replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
 }
+
+
+// Rescan codebase function
+async function confirmRescan(codebaseName, displayName) {
+    if (!confirm('Rescan ' + displayName + '?\n\nThis will detect and process only changed files (added, modified, or deleted). Unchanged files will be skipped for efficiency.')) {
+        return;
+    }
+    
+    try {
+        // Start rescan (no body needed, so no Content-Type header)
+        const response = await fetch('/api/codebases/' + encodeURIComponent(codebaseName) + '/rescan', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to start rescan');
+        }
+        
+        const result = await response.json();
+        const jobId = result.jobId;
+        
+        // Show rescan modal with progress
+        showRescanModal(codebaseName, displayName, jobId);
+        
+    } catch (error) {
+        console.error('Failed to start rescan:', error);
+        showToast('Failed to start rescan: ' + error.message, 'error');
+    }
+}
+
+// Show rescan modal with progress
+function showRescanModal(codebaseName, displayName, jobId) {
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Rescanning ${displayName}</h3>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                    <span id="rescan-phase" style="font-size: 0.875rem; color: var(--text-secondary);">Starting...</span>
+                    <span id="rescan-percent" style="font-size: 0.875rem; font-weight: 500;">0%</span>
+                </div>
+                <div style="background: var(--bg-surface); height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div id="rescan-progress-bar" style="background: var(--accent); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            <p id="rescan-details" style="font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                Preparing to rescan...
+            </p>
+            <div id="rescan-results" style="display: none; background: var(--bg-surface); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem; font-weight: 600;">Rescan Complete</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8125rem;">
+                    <div><span style="color: var(--text-secondary);">Files scanned:</span> <strong id="result-scanned">0</strong></div>
+                    <div><span style="color: var(--text-secondary);">Unchanged:</span> <strong id="result-unchanged">0</strong></div>
+                    <div><span style="color: var(--success);">Added:</span> <strong id="result-added">0</strong></div>
+                    <div><span style="color: var(--warning);">Modified:</span> <strong id="result-modified">0</strong></div>
+                    <div><span style="color: var(--danger);">Deleted:</span> <strong id="result-deleted">0</strong></div>
+                    <div><span style="color: var(--text-secondary);">Duration:</span> <strong id="result-duration">0s</strong></div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-primary" id="rescan-close-btn" onclick="closeRescanModal()" style="display: none;">Close</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Connect to SSE for progress
+    const eventSource = new EventSource('/ingest-progress/' + jobId);
+    
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            
+            const progressBar = document.getElementById('rescan-progress-bar');
+            const progressPercent = document.getElementById('rescan-percent');
+            const progressPhase = document.getElementById('rescan-phase');
+            const progressDetails = document.getElementById('rescan-details');
+            
+            if (!progressBar) return;
+            
+            // Update progress
+            const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+            progressBar.style.width = percent + '%';
+            progressPercent.textContent = percent + '%';
+            progressPhase.textContent = data.phase;
+            progressDetails.textContent = data.phase + ' (' + data.current + '/' + data.total + ')';
+            
+            // Handle completion
+            if (data.status === 'completed') {
+                progressBar.style.width = '100%';
+                progressPercent.textContent = '100%';
+                progressPhase.textContent = 'Complete!';
+                
+                // Show results if available
+                if (data.result) {
+                    const resultsDiv = document.getElementById('rescan-results');
+                    if (resultsDiv) {
+                        resultsDiv.style.display = 'block';
+                        document.getElementById('result-scanned').textContent = data.result.filesScanned || 0;
+                        document.getElementById('result-added').textContent = data.result.filesAdded || 0;
+                        document.getElementById('result-modified').textContent = data.result.filesModified || 0;
+                        document.getElementById('result-deleted').textContent = data.result.filesDeleted || 0;
+                        document.getElementById('result-unchanged').textContent = data.result.filesUnchanged || 0;
+                        document.getElementById('result-duration').textContent = ((data.result.durationMs || 0) / 1000).toFixed(1) + 's';
+                    }
+                    
+                    progressDetails.textContent = 'Successfully rescanned ' + displayName + '. ' + 
+                        (data.result.filesAdded + data.result.filesModified + data.result.filesDeleted) + ' files changed.';
+                } else {
+                    progressDetails.textContent = 'Successfully rescanned ' + displayName;
+                }
+                
+                // Show close button
+                const closeBtn = document.getElementById('rescan-close-btn');
+                if (closeBtn) {
+                    closeBtn.style.display = 'inline-flex';
+                }
+                
+                eventSource.close();
+                
+                // Show success toast
+                showToast('Rescan completed successfully', 'success');
+                
+            } else if (data.status === 'failed') {
+                progressPhase.textContent = 'Failed';
+                progressDetails.textContent = 'Error: ' + (data.error || 'Unknown error');
+                progressBar.style.background = 'var(--danger)';
+                
+                // Show close button
+                const closeBtn = document.getElementById('rescan-close-btn');
+                if (closeBtn) {
+                    closeBtn.style.display = 'inline-flex';
+                }
+                
+                eventSource.close();
+                
+                showToast('Rescan failed', 'error');
+            }
+            
+        } catch (error) {
+            console.error('Failed to parse SSE data:', error);
+        }
+    };
+    
+    eventSource.onerror = function(error) {
+        console.error('SSE connection error:', error);
+        const progressPhase = document.getElementById('rescan-phase');
+        const progressDetails = document.getElementById('rescan-details');
+        const progressBar = document.getElementById('rescan-progress-bar');
+        
+        if (progressPhase) progressPhase.textContent = 'Connection Error';
+        if (progressDetails) progressDetails.textContent = 'Lost connection to server';
+        if (progressBar) progressBar.style.background = 'var(--danger)';
+        
+        // Show close button
+        const closeBtn = document.getElementById('rescan-close-btn');
+        if (closeBtn) {
+            closeBtn.style.display = 'inline-flex';
+        }
+        
+        eventSource.close();
+    };
+}
+
+function closeRescanModal() {
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(function(modal) {
+        if (modal.innerHTML.includes('Rescanning')) {
+            modal.remove();
+        }
+    });
+    
+    // Reload page to show updated stats
+    window.location.href = '/?tab=manage';
+}

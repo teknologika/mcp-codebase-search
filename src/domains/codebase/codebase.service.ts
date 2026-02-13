@@ -14,6 +14,7 @@ import type {
 } from '../../shared/types/index.js';
 import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.client.js';
 import { createLogger } from '../../shared/logging/index.js';
+import { stat } from 'node:fs/promises';
 
 const rootLogger = createLogger('info');
 const logger = rootLogger.child('CodebaseService');
@@ -380,6 +381,7 @@ export class CodebaseService {
             sizeBytes: 0,
             isTestFile: row.isTestFile || false,
             isLibraryFile: row.isLibraryFile || false,
+            fileHash: row.fileHash || '',
           });
         }
 
@@ -387,9 +389,10 @@ export class CodebaseService {
         file.chunkCount++;
         file.sizeBytes += (row.content || '').length;
 
-        // Update to latest ingestion timestamp
+        // Update to latest ingestion timestamp and hash
         if (row.ingestionTimestamp && row.ingestionTimestamp > file.lastIngestion) {
           file.lastIngestion = row.ingestionTimestamp;
+          file.fileHash = row.fileHash || '';
         }
       }
 
@@ -470,6 +473,56 @@ export class CodebaseService {
       );
       throw new CodebaseError(
         `Failed to delete file '${filePath}' from codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Get codebase path for rescan operations
+   * Retrieves the stored path from codebase metadata
+   * 
+   * @param codebaseName - Name of the codebase
+   * @returns The stored path for the codebase
+   */
+  async getCodebasePath(codebaseName: string): Promise<string> {
+    try {
+      logger.debug('Getting codebase path', { codebaseName });
+
+      const codebases = await this.listCodebases();
+      const codebase = codebases.find(cb => cb.name === codebaseName);
+
+      if (!codebase) {
+        throw new CodebaseError(`Codebase '${codebaseName}' not found`);
+      }
+
+      if (!codebase.path) {
+        throw new CodebaseError(`Codebase '${codebaseName}' has no stored path`);
+      }
+
+      // Verify the path still exists
+      try {
+        const pathStats = await stat(codebase.path);
+        if (!pathStats.isDirectory()) {
+          throw new CodebaseError(`Path '${codebase.path}' is not a directory`);
+        }
+      } catch (error) {
+        throw new CodebaseError(
+          `Path '${codebase.path}' does not exist or is not accessible`,
+          error
+        );
+      }
+
+      return codebase.path;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to get codebase path',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName }
+      );
+      throw new CodebaseError(
+        `Failed to get path for codebase '${codebaseName}': ${errorMessage}`,
         error
       );
     }

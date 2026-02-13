@@ -25,6 +25,7 @@ interface IngestionJob {
   total: number;
   status: 'running' | 'completed' | 'failed';
   error?: string;
+  result?: any; // Store rescan result for display
 }
 
 const ingestionJobs = new Map<string, IngestionJob>();
@@ -485,6 +486,83 @@ export async function registerManagerRoutes(
         return reply.status(500).send({
           error: 'Failed to delete file',
           message: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/codebases/:name/rescan
+   * Rescan a codebase to detect and process changed files
+   */
+  fastify.post<{ Params: { name: string } }>(
+    '/api/codebases/:name/rescan',
+    async (request: FastifyRequest<{ Params: { name: string } }>, reply: FastifyReply) => {
+      const { name } = request.params;
+      
+      try {
+        logger.info('POST /api/codebases/:name/rescan', { name });
+        
+        // Get codebase path
+        const path = await codebaseService.getCodebasePath(name);
+        
+        // Create job ID
+        const jobId = randomUUID();
+        
+        logger.info('Starting rescan', { jobId, name, path });
+        
+        // Initialize job tracking
+        ingestionJobs.set(jobId, {
+          id: jobId,
+          codebaseName: name,
+          phase: 'Starting rescan',
+          current: 0,
+          total: 1,
+          status: 'running'
+        });
+        
+        // Start rescan in background
+        ingestionService.rescanCodebase(
+          name,
+          path,
+          (phase: string, current: number, total: number) => {
+            const job = ingestionJobs.get(jobId);
+            if (job) {
+              job.phase = phase;
+              job.current = current;
+              job.total = total;
+            }
+          }
+        ).then((result) => {
+          const job = ingestionJobs.get(jobId);
+          if (job) {
+            job.status = 'completed';
+            job.phase = 'Rescan complete';
+            job.current = job.total;
+            job.result = result;
+          }
+          
+          // Clear search cache after rescan
+          searchService.clearCache();
+          
+          logger.info('Rescan completed', { jobId, name, result });
+        }).catch((error) => {
+          const job = ingestionJobs.get(jobId);
+          if (job) {
+            job.status = 'failed';
+            job.error = error instanceof Error ? error.message : String(error);
+          }
+          logger.error('Rescan failed', error instanceof Error ? error : new Error(String(error)), { jobId, name });
+        });
+        
+        // Return job ID immediately
+        logger.info('Returning rescan job ID', { jobId });
+        return reply.send({ jobId });
+        
+      } catch (error) {
+        logger.error('Failed to start rescan', error instanceof Error ? error : new Error(String(error)), { name });
+        return reply.status(500).send({
+          error: `Failed to start rescan: ${error instanceof Error ? error.message : String(error)}`
         });
       }
     }
