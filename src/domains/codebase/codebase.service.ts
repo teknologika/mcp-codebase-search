@@ -8,7 +8,9 @@ import type {
   CodebaseStats, 
   LanguageStats, 
   ChunkTypeStats,
-  Config 
+  Config,
+  FileInfo,
+  Language
 } from '../../shared/types/index.js';
 import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.client.js';
 import { createLogger } from '../../shared/logging/index.js';
@@ -342,6 +344,132 @@ export class CodebaseService {
       );
       throw new CodebaseError(
         `Failed to delete chunk set for codebase '${codebaseName}' at timestamp '${timestamp}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * List all unique files in a codebase
+   * @param codebaseName - Name of the codebase
+   * @returns Array of file metadata
+   */
+  async listFiles(codebaseName: string): Promise<FileInfo[]> {
+    try {
+      logger.debug('Listing files', { codebaseName });
+
+      const table = await this.lanceClient.getOrCreateTable(codebaseName);
+      if (!table) {
+        throw new CodebaseError(`Codebase '${codebaseName}' not found`);
+      }
+
+      // Query all rows and aggregate by filePath
+      const rows = await table.query().toArray();
+      const filesMap = new Map<string, FileInfo>();
+
+      for (const row of rows) {
+        const filePath = row.filePath || '';
+        if (!filePath) continue;
+
+        if (!filesMap.has(filePath)) {
+          filesMap.set(filePath, {
+            filePath,
+            language: (row.language || 'javascript') as Language,
+            chunkCount: 0,
+            lastIngestion: row.ingestionTimestamp || '',
+            sizeBytes: 0,
+            isTestFile: row.isTestFile || false,
+            isLibraryFile: row.isLibraryFile || false,
+          });
+        }
+
+        const file = filesMap.get(filePath)!;
+        file.chunkCount++;
+        file.sizeBytes += (row.content || '').length;
+
+        // Update to latest ingestion timestamp
+        if (row.ingestionTimestamp && row.ingestionTimestamp > file.lastIngestion) {
+          file.lastIngestion = row.ingestionTimestamp;
+        }
+      }
+
+      const files = Array.from(filesMap.values());
+
+      logger.debug('Files listed successfully', {
+        codebaseName,
+        fileCount: files.length,
+      });
+
+      return files;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to list files',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName }
+      );
+      throw new CodebaseError(
+        `Failed to list files in codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Delete all chunks for a specific file from a codebase
+   * @param codebaseName - Name of the codebase
+   * @param filePath - Relative path to the file to remove
+   * @returns Number of chunks deleted
+   */
+  async deleteFile(codebaseName: string, filePath: string): Promise<number> {
+    try {
+      logger.debug('Deleting file', { codebaseName, filePath });
+
+      // Validate inputs
+      if (!filePath || filePath.trim() === '') {
+        throw new CodebaseError('File path cannot be empty');
+      }
+
+      // Security: Prevent path traversal
+      if (filePath.includes('..') || filePath.startsWith('/')) {
+        throw new CodebaseError('Invalid file path: path traversal not allowed');
+      }
+
+      const table = await this.lanceClient.getOrCreateTable(codebaseName);
+      if (!table) {
+        throw new CodebaseError(`Codebase '${codebaseName}' not found`);
+      }
+
+      // Count chunks before deletion
+      const beforeCount = await table.countRows();
+
+      // Escape single quotes in filePath for SQL filter
+      const escapedFilePath = filePath.replace(/'/g, "''");
+
+      // Delete chunks matching filePath
+      // Use backticks for field names with mixed case in LanceDB
+      await table.delete(`\`filePath\` = '${escapedFilePath}'`);
+
+      // Count chunks after deletion
+      const afterCount = await table.countRows();
+      const deletedCount = beforeCount - afterCount;
+
+      logger.info('File deleted', {
+        codebaseName,
+        filePath,
+        chunksDeleted: deletedCount,
+      });
+
+      return deletedCount;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to delete file',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName, filePath }
+      );
+      throw new CodebaseError(
+        `Failed to delete file '${filePath}' from codebase '${codebaseName}': ${errorMessage}`,
         error
       );
     }

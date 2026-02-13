@@ -322,6 +322,83 @@ export const OPEN_CODEBASE_MANAGER_SCHEMA = {
 } as const;
 
 /**
+ * Schema for list_files tool
+ * 
+ * Lists all files in a codebase with metadata
+ */
+export const LIST_FILES_SCHEMA = {
+  name: 'list_files',
+  description: 'List all files in a codebase with metadata including chunk count, language, size, and last ingestion timestamp. Useful for understanding codebase structure and finding specific files.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase to list files from',
+      },
+    },
+    required: ['codebaseName'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      files: {
+        type: 'array',
+        description: 'Array of files in the codebase',
+        items: {
+          type: 'object',
+          properties: {
+            filePath: {
+              type: 'string',
+              description: 'Relative path to the file',
+            },
+            language: {
+              type: 'string',
+              description: 'Programming language of the file',
+            },
+            chunkCount: {
+              type: 'number',
+              description: 'Number of chunks extracted from this file',
+              minimum: 0,
+            },
+            lastIngestion: {
+              type: 'string',
+              description: 'ISO 8601 timestamp of last ingestion',
+            },
+            sizeBytes: {
+              type: 'number',
+              description: 'Total size of all chunks in bytes',
+              minimum: 0,
+            },
+            isTestFile: {
+              type: 'boolean',
+              description: 'Whether this is a test file',
+            },
+            isLibraryFile: {
+              type: 'boolean',
+              description: 'Whether this is a library/vendor file',
+            },
+          },
+          required: ['filePath', 'language', 'chunkCount', 'lastIngestion', 'sizeBytes', 'isTestFile', 'isLibraryFile'],
+        },
+      },
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase',
+      },
+      totalFiles: {
+        type: 'number',
+        description: 'Total number of files',
+        minimum: 0,
+      },
+    },
+    required: ['files', 'codebaseName', 'totalFiles'],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
  * All tool schemas exported as an array for easy registration
  */
 export const ALL_TOOL_SCHEMAS = [
@@ -329,6 +406,7 @@ export const ALL_TOOL_SCHEMAS = [
   SEARCH_CODEBASES_SCHEMA,
   GET_CODEBASE_STATS_SCHEMA,
   OPEN_CODEBASE_MANAGER_SCHEMA,
+  LIST_FILES_SCHEMA,
 ] as const;
 
 /**
@@ -401,4 +479,22 @@ export interface OpenCodebaseManagerInput {
 export interface OpenCodebaseManagerOutput {
   url: string;
   message: string;
+}
+
+export interface ListFilesInput {
+  codebaseName: string;
+}
+
+export interface ListFilesOutput {
+  files: Array<{
+    filePath: string;
+    language: string;
+    chunkCount: number;
+    lastIngestion: string;
+    sizeBytes: number;
+    isTestFile: boolean;
+    isLibraryFile: boolean;
+  }>;
+  codebaseName: string;
+  totalFiles: number;
 }

@@ -435,5 +435,60 @@ export async function registerManagerRoutes(
     }
   });
 
+  /**
+   * GET /api/codebases/:name/files
+   * List all files in a codebase
+   */
+  fastify.get<{ Params: { name: string } }>(
+    '/api/codebases/:name/files',
+    async (request: FastifyRequest<{ Params: { name: string } }>, reply: FastifyReply) => {
+      const { name } = request.params;
+      
+      try {
+        const files = await codebaseService.listFiles(name);
+        return reply.send({ files });
+      } catch (error) {
+        logger.error('Failed to list files', error instanceof Error ? error : new Error(String(error)), { name });
+        return reply.status(500).send({
+          error: 'Failed to list files',
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/codebases/:name/files
+   * Delete a specific file from a codebase
+   */
+  fastify.delete<{ Params: { name: string }; Body: { filePath: string } }>(
+    '/api/codebases/:name/files',
+    async (request: FastifyRequest<{ Params: { name: string }; Body: { filePath: string } }>, reply: FastifyReply) => {
+      const { name } = request.params;
+      const { filePath } = request.body;
+      
+      try {
+        if (!filePath) {
+          return reply.status(400).send({
+            error: 'File path is required'
+          });
+        }
+        
+        await codebaseService.deleteFile(name, filePath);
+        
+        // Clear search cache after deletion
+        searchService.clearCache();
+        
+        return reply.send({ success: true });
+      } catch (error) {
+        logger.error('Failed to delete file', error instanceof Error ? error : new Error(String(error)), { name, filePath });
+        return reply.status(500).send({
+          error: 'Failed to delete file',
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  );
+
   logger.debug('Manager UI routes registered successfully');
 }

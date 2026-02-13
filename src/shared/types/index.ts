@@ -64,6 +64,7 @@ export interface Chunk {
   filePath: string;
   isTestFile?: boolean;
   isLibraryFile?: boolean;
+  fileHash: string; // MD5 hash of the source file
 }
 
 /**
@@ -76,6 +77,20 @@ export interface CodebaseMetadata {
   fileCount: number;
   lastIngestion: string; // ISO 8601 timestamp
   languages: string[];
+}
+
+/**
+ * File information in a codebase
+ */
+export interface FileInfo {
+  filePath: string;
+  language: Language;
+  chunkCount: number;
+  lastIngestion: string;
+  sizeBytes: number;
+  isTestFile: boolean;
+  isLibraryFile: boolean;
+  fileHash: string; // MD5 hash of the file
 }
 
 /**
@@ -163,5 +178,20 @@ export interface IngestionStats {
   unsupportedFiles: Map<string, number>;
   chunksCreated: number;
   languages: Map<string, LanguageStats>;
+  durationMs: number;
+}
+
+/**
+ * Rescan result statistics
+ */
+export interface RescanResult {
+  codebaseName: string;
+  filesScanned: number;
+  filesAdded: number;
+  filesModified: number;
+  filesDeleted: number;
+  filesUnchanged: number;
+  chunksAdded: number;
+  chunksDeleted: number;
   durationMs: number;
 }

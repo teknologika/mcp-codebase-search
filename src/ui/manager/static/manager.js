@@ -571,3 +571,191 @@ function quitManager() {
         });
     }
 }
+
+// File management functions
+const expandedCodebases = new Set();
+
+async function toggleFiles(event, codebaseName) {
+    event.stopPropagation();
+    
+    const filesRow = document.getElementById('files-row-' + codebaseName);
+    const expandIcon = event.currentTarget.querySelector('.expand-icon');
+    
+    if (!filesRow) return;
+    
+    // Toggle visibility
+    if (filesRow.style.display === 'none') {
+        // Expand
+        filesRow.style.display = 'table-row';
+        expandIcon.style.transform = 'rotate(90deg)';
+        
+        // Load files if not already loaded
+        if (!expandedCodebases.has(codebaseName)) {
+            await loadFiles(codebaseName);
+            expandedCodebases.add(codebaseName);
+        }
+    } else {
+        // Collapse
+        filesRow.style.display = 'none';
+        expandIcon.style.transform = 'rotate(0deg)';
+    }
+}
+
+async function loadFiles(codebaseName) {
+    const container = document.getElementById('files-container-' + codebaseName);
+    if (!container) return;
+    
+    try {
+        const response = await fetch('/api/codebases/' + encodeURIComponent(codebaseName) + '/files');
+        
+        if (!response.ok) {
+            throw new Error('Failed to load files');
+        }
+        
+        const data = await response.json();
+        const files = data.files || [];
+        
+        if (files.length === 0) {
+            container.innerHTML = '<div style="padding: 1.5rem; text-align: center; color: var(--text-secondary);">No files found</div>';
+            return;
+        }
+        
+        // Build files list HTML
+        let html = '<div style="padding: 1rem;">';
+        
+        files.forEach(function(file) {
+            const icon = getFileIcon(file.language);
+            const testBadge = file.isTestFile ? '<span class="badge badge-orange" style="margin-left: 0.5rem;">Test</span>' : '';
+            const libBadge = file.isLibraryFile ? '<span class="badge" style="margin-left: 0.5rem; background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">Library</span>' : '';
+            
+            html += '<div class="file-item">';
+            html += '  <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0;">';
+            html += '    ' + icon;
+            html += '    <code style="font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHtml(file.filePath) + '</code>';
+            html += '    <span class="badge badge-green">' + file.language + '</span>';
+            html += '    ' + testBadge;
+            html += '    ' + libBadge;
+            html += '  </div>';
+            html += '  <div style="display: flex; align-items: center; gap: 1rem;">';
+            html += '    <span style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap;">' + file.chunkCount + ' chunks</span>';
+            html += '    <button type="button" class="btn btn-ghost btn-sm" onclick="confirmDeleteFile(\'' + escapeJs(codebaseName) + '\', \'' + escapeJs(file.filePath) + '\', this)" style="color: var(--danger);">';
+            html += '      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">';
+            html += '        <polyline points="3 6 5 6 21 6"/>';
+            html += '        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>';
+            html += '      </svg>';
+            html += '      Delete';
+            html += '    </button>';
+            html += '  </div>';
+            html += '</div>';
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Failed to load files:', error);
+        container.innerHTML = '<div style="padding: 1.5rem; text-align: center; color: var(--danger);">Failed to load files</div>';
+    }
+}
+
+function getFileIcon(language) {
+    const icons = {
+        'typescript': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: #3178c6; flex-shrink: 0;"><path d="M9 7h11M9 12h11M9 17h11M5 7h0M5 12h0M5 17h0"/></svg>',
+        'javascript': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: #f7df1e; flex-shrink: 0;"><path d="M9 7h11M9 12h11M9 17h11M5 7h0M5 12h0M5 17h0"/></svg>',
+        'python': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: #3776ab; flex-shrink: 0;"><path d="M9 7h11M9 12h11M9 17h11M5 7h0M5 12h0M5 17h0"/></svg>',
+        'java': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: #007396; flex-shrink: 0;"><path d="M9 7h11M9 12h11M9 17h11M5 7h0M5 12h0M5 17h0"/></svg>',
+        'csharp': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: #239120; flex-shrink: 0;"><path d="M9 7h11M9 12h11M9 17h11M5 7h0M5 12h0M5 17h0"/></svg>'
+    };
+    
+    return icons[language.toLowerCase()] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: var(--text-secondary); flex-shrink: 0;"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>';
+}
+
+async function confirmDeleteFile(codebaseName, filePath, buttonElement) {
+    if (!confirm('Delete this file?\n\n' + filePath + '\n\nThis will remove all chunks for this file. This cannot be undone.')) {
+        return;
+    }
+    
+    // Disable button and show loading
+    buttonElement.disabled = true;
+    buttonElement.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg> Deleting...';
+    
+    try {
+        const response = await fetch('/api/codebases/' + encodeURIComponent(codebaseName) + '/files', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ filePath: filePath })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to delete file');
+        }
+        
+        // Show success toast
+        showToast('File deleted successfully', 'success');
+        
+        // Fade out and remove the file item
+        const fileItem = buttonElement.closest('.file-item');
+        if (fileItem) {
+            fileItem.style.transition = 'opacity 0.3s ease';
+            fileItem.style.opacity = '0';
+            setTimeout(function() {
+                fileItem.remove();
+                
+                // Check if there are any files left
+                const container = document.getElementById('files-container-' + codebaseName);
+                const remainingFiles = container ? container.querySelectorAll('.file-item').length : 0;
+                
+                if (remainingFiles === 0) {
+                    container.innerHTML = '<div style="padding: 1.5rem; text-align: center; color: var(--text-secondary);">No files found</div>';
+                }
+            }, 300);
+        }
+        
+        // Reload page after a short delay to update chunk counts
+        setTimeout(function() {
+            window.location.href = '/?tab=manage';
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Failed to delete file:', error);
+        showToast('Failed to delete file: ' + error.message, 'error');
+        
+        // Re-enable button
+        buttonElement.disabled = false;
+        buttonElement.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete';
+    }
+}
+
+function showToast(message, type) {
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.textContent = message;
+    toast.style.cssText = 'position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; border-radius: 8px; font-size: 0.875rem; font-weight: 500; z-index: 2000; animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; box-shadow: var(--shadow-md);';
+    
+    if (type === 'success') {
+        toast.style.background = 'rgba(34, 197, 94, 0.9)';
+        toast.style.color = 'white';
+    } else if (type === 'error') {
+        toast.style.background = 'rgba(239, 68, 68, 0.9)';
+        toast.style.color = 'white';
+    }
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(function() {
+        toast.remove();
+    }, 3000);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function escapeJs(text) {
+    return text.replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+}

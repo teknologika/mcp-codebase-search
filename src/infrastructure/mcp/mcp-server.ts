@@ -27,6 +27,7 @@ import {
   SEARCH_CODEBASES_SCHEMA,
   GET_CODEBASE_STATS_SCHEMA,
   OPEN_CODEBASE_MANAGER_SCHEMA,
+  LIST_FILES_SCHEMA,
   type SearchCodebasesInput,
   type GetCodebaseStatsInput,
 } from './tool-schemas.js';
@@ -126,6 +127,8 @@ export class MCPServer {
             return await this.handleGetCodebaseStats(args);
           case 'open_codebase_manager':
             return await this.handleOpenCodebaseManager(args);
+          case 'list_files':
+            return await this.handleListFiles(args);
           default:
             throw this.createError(
               MCPErrorCode.TOOL_NOT_FOUND,
@@ -291,6 +294,43 @@ export class MCPServer {
           },
         ],
       };
+    }
+  }
+
+  /**
+   * Handle list_files tool call
+   */
+  private async handleListFiles(args: unknown) {
+    // Validate input
+    this.validateInput(LIST_FILES_SCHEMA.inputSchema, args);
+
+    const { codebaseName } = args as { codebaseName: string };
+
+    try {
+      const files = await this.codebaseService.listFiles(codebaseName);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                files,
+                codebaseName,
+                totalFiles: files.length,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      throw this.createError(
+        MCPErrorCode.INTERNAL_ERROR,
+        `Failed to list files: ${error instanceof Error ? error.message : String(error)}`,
+        error
+      );
     }
   }
 
