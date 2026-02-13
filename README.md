@@ -2,6 +2,8 @@
 
 > A local-first semantic search system for codebases using the Model Context Protocol (MCP)
 
+<!-- Test comment for rescan functionality - 2026-02-13 -->
+
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D23.0.0-brightgreen)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 

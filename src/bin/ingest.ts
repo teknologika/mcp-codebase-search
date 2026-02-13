@@ -7,6 +7,7 @@
  * 
  * Usage:
  *   ingest --path <directory> --name <codebase-name> [--config <config-file>]
+ *   ingest --path <directory> --name <codebase-name> --rescan
  * 
  * Requirements: 9.2, 9.4
  */
@@ -54,12 +55,13 @@ async function main() {
 
   program
     .name('ingest')
-    .description('Ingest a codebase for semantic search')
+    .description('Ingest or rescan a codebase for semantic search')
     .version('0.1.0')
     .requiredOption('-p, --path <directory>', 'Path to codebase directory')
     .requiredOption('-n, --name <name>', 'Unique name for the codebase')
     .option('-c, --config <file>', 'Path to configuration file')
     .option('--no-gitignore', 'Disable .gitignore filtering (include all files)')
+    .option('-r, --rescan', 'Rescan existing codebase (incremental update)')
     .parse(process.argv);
 
   const options = program.opts();
@@ -86,10 +88,6 @@ async function main() {
     // Load configuration
     const config = loadConfig(options.config);
     const logger = createLogger(config.logging.level);
-
-    console.log(`\nIngesting codebase: ${options.name}`);
-    console.log(`Path: ${codebasePath}`);
-    console.log('');
 
     // Initialize services
     logger.info('Initializing services...');
@@ -131,66 +129,106 @@ async function main() {
       }
     };
 
-    // Run ingestion
-    const stats = await ingestionService.ingestCodebase(
-      {
-        path: codebasePath,
-        name: options.name,
-        config,
-        respectGitignore: options.gitignore !== false, // Commander sets to false if --no-gitignore is used
-      },
-      progressCallback
-    );
+    // Check if this is a rescan operation
+    if (options.rescan) {
+      console.log(`\nRescanning codebase: ${options.name}`);
+      console.log(`Path: ${codebasePath}`);
+      console.log('');
 
-    // Print statistics
-    console.log('');
-    console.log('✓ Ingestion completed successfully!');
-    console.log('');
-    console.log('Statistics:');
-    console.log(`  Total files scanned: ${stats.totalFiles}`);
-    console.log(`  Supported files: ${stats.supportedFiles}`);
-    console.log(`  Unsupported files: ${stats.unsupportedFiles}`);
-    console.log(`  Chunks created: ${stats.chunksCreated}`);
-    console.log(`  Duration: ${formatDuration(stats.durationMs)}`);
-    console.log('');
-
-    // Print language distribution
-    if (stats.languages.size > 0) {
-      console.log('Languages detected:');
-      const sortedLanguages = Array.from(stats.languages.values()).sort(
-        (a, b) => b.chunkCount - a.chunkCount
+      // Run rescan
+      const result = await ingestionService.rescanCodebase(
+        options.name,
+        codebasePath,
+        progressCallback
       );
-      for (const lang of sortedLanguages) {
-        console.log(
-          `  ${lang.language}: ${lang.chunkCount} chunks (${lang.fileCount} files)`
+
+      // Print statistics
+      console.log('');
+      console.log('✓ Rescan completed successfully!');
+      console.log('');
+      console.log('Statistics:');
+      console.log(`  Files scanned: ${result.filesScanned}`);
+      console.log(`  Files added: ${result.filesAdded}`);
+      console.log(`  Files modified: ${result.filesModified}`);
+      console.log(`  Files deleted: ${result.filesDeleted}`);
+      console.log(`  Files unchanged: ${result.filesUnchanged}`);
+      console.log(`  Duration: ${formatDuration(result.durationMs)}`);
+      console.log('');
+
+      logger.info('Rescan completed', {
+        filesScanned: result.filesScanned,
+        filesAdded: result.filesAdded,
+        filesModified: result.filesModified,
+        filesDeleted: result.filesDeleted,
+        filesUnchanged: result.filesUnchanged,
+        durationMs: result.durationMs,
+      });
+    } else {
+      console.log(`\nIngesting codebase: ${options.name}`);
+      console.log(`Path: ${codebasePath}`);
+      console.log('');
+
+      // Run ingestion
+      const stats = await ingestionService.ingestCodebase(
+        {
+          path: codebasePath,
+          name: options.name,
+          config,
+          respectGitignore: options.gitignore !== false, // Commander sets to false if --no-gitignore is used
+        },
+        progressCallback
+      );
+
+      // Print statistics
+      console.log('');
+      console.log('✓ Ingestion completed successfully!');
+      console.log('');
+      console.log('Statistics:');
+      console.log(`  Total files scanned: ${stats.totalFiles}`);
+      console.log(`  Supported files: ${stats.supportedFiles}`);
+      console.log(`  Unsupported files: ${stats.unsupportedFiles}`);
+      console.log(`  Chunks created: ${stats.chunksCreated}`);
+      console.log(`  Duration: ${formatDuration(stats.durationMs)}`);
+      console.log('');
+
+      // Print language distribution
+      if (stats.languages.size > 0) {
+        console.log('Languages detected:');
+        const sortedLanguages = Array.from(stats.languages.values()).sort(
+          (a, b) => b.chunkCount - a.chunkCount
         );
+        for (const lang of sortedLanguages) {
+          console.log(
+            `  ${lang.language}: ${lang.chunkCount} chunks (${lang.fileCount} files)`
+          );
+        }
+        console.log('');
       }
-      console.log('');
-    }
 
-    // Print unsupported file summary
-    if (stats.unsupportedFiles.size > 0) {
-      console.log('Unsupported files by extension:');
-      const sortedExtensions = Array.from(stats.unsupportedFiles.entries()).sort(
-        (a, b) => b[1] - a[1]
-      );
-      for (const [ext, count] of sortedExtensions) {
-        console.log(`  ${ext}: ${count} files`);
+      // Print unsupported file summary
+      if (stats.unsupportedFiles.size > 0) {
+        console.log('Unsupported files by extension:');
+        const sortedExtensions = Array.from(stats.unsupportedFiles.entries()).sort(
+          (a, b) => b[1] - a[1]
+        );
+        for (const [ext, count] of sortedExtensions) {
+          console.log(`  ${ext}: ${count} files`);
+        }
+        console.log('');
       }
-      console.log('');
-    }
 
-    logger.info('Ingestion completed', {
-      codebaseName: options.name,
-      ...stats,
-    });
+      logger.info('Ingestion completed', {
+        codebaseName: options.name,
+        ...stats,
+      });
+    }
 
     // Give LanceDB time to cleanup before exit
     await new Promise(resolve => setTimeout(resolve, 100));
     process.exit(0);
   } catch (error) {
     console.error('');
-    console.error('✗ Ingestion failed');
+    console.error(options.rescan ? '✗ Rescan failed' : '✗ Ingestion failed');
     console.error('');
     
     if (error instanceof Error) {
