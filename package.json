@@ -75,6 +75,7 @@
     "handlebars": "^4.7.8",
     "ignore": "^7.0.5",
     "pino": "^8.17.0",
+    "tiktoken": "^1.0.22",
     "tree-sitter": "^0.21.0",
     "tree-sitter-c-sharp": "^0.21.0",
     "tree-sitter-java": "^0.21.0",

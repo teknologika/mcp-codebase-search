@@ -43,6 +43,8 @@ describe('HuggingFaceEmbeddingService', () => {
       ingestion: {
         batchSize: 100,
         maxFileSize: 1048576,
+        maxChunkTokens: 512,
+        chunkOverlapTokens: 50,
       },
       search: {
         defaultMaxResults: 50,

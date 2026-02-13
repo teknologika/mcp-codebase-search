@@ -40,6 +40,8 @@ export const DEFAULT_CONFIG: Config = {
   ingestion: {
     batchSize: 100,
     maxFileSize: 1048576, // 1MB
+    maxChunkTokens: 512, // Optimal for Xenova/all-MiniLM-L6-v2
+    chunkOverlapTokens: 50, // Context overlap for split chunks
   },
   search: {
     defaultMaxResults: 50,
@@ -97,8 +99,10 @@ const configSchema: JSONSchemaType<Config> = {
       properties: {
         batchSize: { type: 'integer', minimum: 1 },
         maxFileSize: { type: 'integer', minimum: 1 },
+        maxChunkTokens: { type: 'integer', minimum: 1 },
+        chunkOverlapTokens: { type: 'integer', minimum: 0 },
       },
-      required: ['batchSize', 'maxFileSize'],
+      required: ['batchSize', 'maxFileSize', 'maxChunkTokens', 'chunkOverlapTokens'],
       additionalProperties: false,
     },
     search: {
@@ -243,7 +247,7 @@ function loadConfigFromEnv(): Partial<Config> {
   }
 
   // Ingestion configuration
-  if (env.INGESTION_BATCH_SIZE || env.INGESTION_MAX_FILE_SIZE) {
+  if (env.INGESTION_BATCH_SIZE || env.INGESTION_MAX_FILE_SIZE || env.INGESTION_MAX_CHUNK_TOKENS || env.INGESTION_CHUNK_OVERLAP_TOKENS) {
     config.ingestion = {
       batchSize: env.INGESTION_BATCH_SIZE
         ? parseInt(env.INGESTION_BATCH_SIZE, 10)
@@ -251,6 +255,12 @@ function loadConfigFromEnv(): Partial<Config> {
       maxFileSize: env.INGESTION_MAX_FILE_SIZE
         ? parseInt(env.INGESTION_MAX_FILE_SIZE, 10)
         : DEFAULT_CONFIG.ingestion.maxFileSize,
+      maxChunkTokens: env.INGESTION_MAX_CHUNK_TOKENS
+        ? parseInt(env.INGESTION_MAX_CHUNK_TOKENS, 10)
+        : DEFAULT_CONFIG.ingestion.maxChunkTokens,
+      chunkOverlapTokens: env.INGESTION_CHUNK_OVERLAP_TOKENS
+        ? parseInt(env.INGESTION_CHUNK_OVERLAP_TOKENS, 10)
+        : DEFAULT_CONFIG.ingestion.chunkOverlapTokens,
     };
   }
 

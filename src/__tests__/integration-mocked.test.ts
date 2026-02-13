@@ -100,7 +100,7 @@ export class UserManager {
         `.trim()
       );
 
-      const parser = new TreeSitterParsingService();
+      const parser = new TreeSitterParsingService(testConfig);
       const chunks = await parser.parseFile(tsFile, 'typescript');
 
       expect(chunks.length).toBeGreaterThan(0);
@@ -431,7 +431,7 @@ export class UserManager {
       // This test validates that all components needed for ingestion exist
       const scanner = new FileScannerService();
       const languageDetection = new LanguageDetectionService();
-      const parser = new TreeSitterParsingService();
+      const parser = new TreeSitterParsingService(testConfig);
 
       expect(scanner).toBeDefined();
       expect(languageDetection).toBeDefined();

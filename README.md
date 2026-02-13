@@ -391,7 +391,9 @@ The system can be configured using a JSON configuration file. The default locati
   },
   "ingestion": {
     "batchSize": 100,
-    "maxFileSize": 1048576
+    "maxFileSize": 1048576,
+    "maxChunkTokens": 512,
+    "chunkOverlapTokens": 50
   },
   "search": {
     "defaultMaxResults": 50,
@@ -433,6 +435,10 @@ The system can be configured using a JSON configuration file. The default locati
 |--------|-------------|---------|
 | `batchSize` | Chunks per batch during ingestion | `100` |
 | `maxFileSize` | Maximum file size in bytes | `1048576` (1MB) |
+| `maxChunkTokens` | Maximum tokens per chunk (optimized for embedding model) | `512` |
+| `chunkOverlapTokens` | Token overlap between split chunks for context preservation | `50` |
+
+**Note:** The `maxChunkTokens` setting is optimized for the Xenova/all-MiniLM-L6-v2 model. Adjust based on your embedding model's optimal input size.
 
 #### Search Settings
 
@@ -605,12 +611,28 @@ These tags enable filtering in search results.
 #### Ingestion Flow
 
 ```
-Source Code → File Scanner → Tree-sitter Parser → Chunks
-                                                      ↓
-                                            File Classifier
-                                                      ↓
+Source Code → File Scanner → Tree-sitter Parser → Semantic Chunks
+                                                         ↓
+                                                  Token Counter
+                                                         ↓
+                                              Split Oversized Chunks
+                                                         ↓
+                                                 File Classifier
+                                                         ↓
 LanceDB ← Embeddings ← Embedding Service ← Tagged Chunks
 ```
+
+**Chunking Strategy:**
+The system uses a hybrid approach optimized for the Xenova/all-MiniLM-L6-v2 model:
+
+1. **AST-Based Extraction**: Tree-sitter extracts semantic units (functions, classes, methods)
+2. **Token-Aware Splitting**: Large chunks exceeding 512 tokens are intelligently split:
+   - Splits on line boundaries (preferred)
+   - Falls back to sentence boundaries
+   - Maintains 50-token overlap for context
+   - Preserves metadata (file path, language, line numbers)
+
+This ensures optimal embedding quality while maintaining semantic coherence.
 
 #### Search Flow
 

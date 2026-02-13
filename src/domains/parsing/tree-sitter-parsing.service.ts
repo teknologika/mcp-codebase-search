@@ -12,8 +12,9 @@ import TreeSitterJavaScript from 'tree-sitter-javascript';
 import TreeSitterTypeScript from 'tree-sitter-typescript';
 import TreeSitterPython from 'tree-sitter-python';
 import { readFile } from 'node:fs/promises';
-import { Language, Chunk, ChunkType } from '../../shared/types/index.js';
+import { Language, Chunk, ChunkType, Config } from '../../shared/types/index.js';
 import { createLogger } from '../../shared/logging/logger.js';
+import { getTokenCounter } from '../../shared/utils/token-counter.js';
 
 const logger = createLogger('info').child('TreeSitterParsingService');
 
@@ -58,8 +59,10 @@ const NODE_TYPE_MAPPINGS: Record<Language, Record<string, ChunkType>> = {
  */
 export class TreeSitterParsingService {
   private parsers: Map<Language, Parser> = new Map();
+  private config: Config;
 
-  constructor() {
+  constructor(config: Config) {
+    this.config = config;
     this.initializeParsers();
   }
 
@@ -116,12 +119,20 @@ export class TreeSitterParsingService {
       // Extract chunks from AST
       const chunks = this.extractChunks(tree.rootNode, content, filePath, language);
       
+      // Apply token-based splitting for large chunks
+      const processedChunks = this.splitOversizedChunks(chunks);
+      
       logger.debug(
         'Extracted chunks from file',
-        { filePath, language, chunkCount: chunks.length }
+        { 
+          filePath, 
+          language, 
+          rawChunkCount: chunks.length,
+          processedChunkCount: processedChunks.length 
+        }
       );
 
-      return chunks;
+      return processedChunks;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(
@@ -327,5 +338,69 @@ export class TreeSitterParsingService {
     }
 
     return types.includes(node.type);
+  }
+
+  /**
+   * Split oversized chunks that exceed token limits
+   * Maintains semantic boundaries while respecting model constraints
+   * 
+   * @param chunks - Array of chunks to process
+   * @returns Array of chunks with large chunks split
+   */
+  private splitOversizedChunks(chunks: Chunk[]): Chunk[] {
+    const tokenCounter = getTokenCounter();
+    const maxTokens = this.config.ingestion.maxChunkTokens;
+    const overlapTokens = this.config.ingestion.chunkOverlapTokens;
+    const processedChunks: Chunk[] = [];
+
+    for (const chunk of chunks) {
+      const tokenCount = tokenCounter.countTokens(chunk.content);
+
+      // If chunk is within limits, keep as-is
+      if (tokenCount <= maxTokens) {
+        processedChunks.push(chunk);
+        continue;
+      }
+
+      // Split large chunk while preserving metadata
+      logger.debug(
+        'Splitting oversized chunk',
+        { 
+          filePath: chunk.filePath, 
+          chunkType: chunk.chunkType,
+          tokens: tokenCount,
+          maxTokens 
+        }
+      );
+
+      const splitTexts = tokenCounter.splitByTokens(
+        chunk.content,
+        maxTokens,
+        overlapTokens
+      );
+
+      // Create sub-chunks with adjusted line numbers
+      let currentLine = chunk.startLine;
+
+      for (let i = 0; i < splitTexts.length; i++) {
+        const splitText = splitTexts[i];
+        const splitLines = splitText.split('\n').length;
+
+        processedChunks.push({
+          ...chunk,
+          content: splitText,
+          startLine: currentLine,
+          endLine: currentLine + splitLines - 1,
+          // Mark as split chunk in the type (e.g., "class_part_1")
+          chunkType: splitTexts.length > 1 
+            ? `${chunk.chunkType}_part_${i + 1}` as ChunkType
+            : chunk.chunkType,
+        });
+
+        currentLine += splitLines;
+      }
+    }
+
+    return processedChunks;
   }
 }

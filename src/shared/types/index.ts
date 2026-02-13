@@ -39,6 +39,8 @@ export interface Config {
   ingestion: {
     batchSize: number;
     maxFileSize: number;
+    maxChunkTokens: number;
+    chunkOverlapTokens: number;
   };
   search: {
     defaultMaxResults: number;

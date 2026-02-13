@@ -57,7 +57,7 @@ export class IngestionService {
     config: Config
   ) {
     this.fileScanner = new FileScannerService();
-    this.parser = new TreeSitterParsingService();
+    this.parser = new TreeSitterParsingService(config);
     this.embeddingService = embeddingService;
     this.lanceClient = lanceClient;
     this.config = config;

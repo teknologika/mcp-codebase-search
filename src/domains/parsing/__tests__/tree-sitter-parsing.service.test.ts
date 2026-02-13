@@ -7,13 +7,14 @@ import { TreeSitterParsingService } from '../tree-sitter-parsing.service.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DEFAULT_CONFIG } from '../../../shared/config/config.js';
 
 describe('TreeSitterParsingService', () => {
   let service: TreeSitterParsingService;
   let testDir: string;
 
   beforeEach(async () => {
-    service = new TreeSitterParsingService();
+    service = new TreeSitterParsingService(DEFAULT_CONFIG);
     testDir = join(tmpdir(), `tree-sitter-test-${Date.now()}`);
     await mkdir(testDir, { recursive: true });
   });
@@ -414,6 +415,67 @@ function test() {
       expect(chunks).toHaveLength(1);
       // Should start at the comment line
       expect(chunks[0].startLine).toBe(2);
+    });
+  });
+
+  describe('Chunk splitting for large functions', () => {
+    it('should split oversized functions into multiple chunks', async () => {
+      const filePath = join(testDir, 'large.js');
+      // Create a very large function that exceeds token limits
+      const largeFunction = `function processData(data) {
+  // This is a very large function with lots of code
+  ${Array(100).fill('  console.log("Processing step");').join('\n')}
+  ${Array(100).fill('  const result = data.map(x => x * 2);').join('\n')}
+  ${Array(100).fill('  if (result.length > 0) { return result; }').join('\n')}
+  return [];
+}`;
+      await writeFile(filePath, largeFunction);
+
+      const chunks = await service.parseFile(filePath, 'javascript');
+
+      // Should split the large function into multiple parts
+      expect(chunks.length).toBeGreaterThan(1);
+      
+      // Each chunk should be within token limits (512 tokens)
+      const tokenCounter = (await import('../../../shared/utils/token-counter.js')).getTokenCounter();
+      for (const chunk of chunks) {
+        const tokens = tokenCounter.countTokens(chunk.content);
+        expect(tokens).toBeLessThanOrEqual(512);
+      }
+    });
+
+    it('should keep small functions as single chunks', async () => {
+      const filePath = join(testDir, 'small.js');
+      const smallFunction = `function add(a, b) {
+  return a + b;
+}`;
+      await writeFile(filePath, smallFunction);
+
+      const chunks = await service.parseFile(filePath, 'javascript');
+
+      // Should not split small functions
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].chunkType).toBe('function');
+    });
+
+    it('should maintain metadata when splitting chunks', async () => {
+      const filePath = join(testDir, 'metadata.ts');
+      const largeClass = `class DataProcessor {
+  process() {
+    ${Array(200).fill('    console.log("step");').join('\n')}
+  }
+}`;
+      await writeFile(filePath, largeClass);
+
+      const chunks = await service.parseFile(filePath, 'typescript');
+
+      // All chunks should maintain language and file path
+      for (const chunk of chunks) {
+        expect(chunk.language).toBe('typescript');
+        expect(chunk.filePath).toBe(filePath);
+        expect(chunk.startLine).toBeGreaterThan(0);
+        expect(chunk.endLine).toBeGreaterThanOrEqual(chunk.startLine);
+      }
     });
   });
 
