@@ -26,6 +26,70 @@ import { FastifyServer } from '../infrastructure/fastify/fastify-server.js';
 
 const execAsync = promisify(exec);
 
+/**
+ * Check if a port is in use
+ */
+async function isPortInUse(port: number, host: string): Promise<boolean> {
+  const net = await import('node:net');
+  
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    });
+    
+    server.once('listening', () => {
+      server.close();
+      resolve(false);
+    });
+    
+    server.listen(port, host);
+  });
+}
+
+/**
+ * Try to shutdown existing server
+ */
+async function shutdownExistingServer(host: string, port: number): Promise<boolean> {
+  try {
+    const url = `http://${host}:${port}/api/shutdown`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    
+    if (response.ok) {
+      // Wait for server to shut down
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return true;
+    }
+    return false;
+  } catch (error) {
+    // Server might not have the shutdown endpoint or is not responding
+    return false;
+  }
+}
+
+/**
+ * Wait for port to become available
+ */
+async function waitForPort(port: number, host: string, maxAttempts: number = 10): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const inUse = await isPortInUse(port, host);
+    if (!inUse) {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 let configPath: string | undefined;
@@ -131,6 +195,43 @@ async function main() {
       ingestionService,
       config
     );
+
+    // Check if port is already in use
+    const portInUse = await isPortInUse(config.server.port, config.server.host);
+    if (portInUse) {
+      mainLogger.info('Port is already in use, attempting to shutdown existing server', {
+        host: config.server.host,
+        port: config.server.port,
+      });
+      console.log('');
+      console.log('⚠ Port is already in use. Attempting to restart existing server...');
+      console.log('');
+      
+      const shutdownSuccess = await shutdownExistingServer(config.server.host, config.server.port);
+      if (shutdownSuccess) {
+        mainLogger.info('Successfully requested shutdown of existing server');
+        console.log('✓ Existing server shutdown requested');
+        console.log('');
+        
+        // Wait for port to become available
+        const portAvailable = await waitForPort(config.server.port, config.server.host);
+        if (!portAvailable) {
+          throw new Error(
+            `Port ${config.server.port} is still in use after shutdown attempt. ` +
+            `Please manually stop the process using port ${config.server.port}.`
+          );
+        }
+        
+        mainLogger.info('Port is now available');
+        console.log('✓ Port is now available');
+        console.log('');
+      } else {
+        throw new Error(
+          `Port ${config.server.port} is already in use and could not be freed. ` +
+          `Please manually stop the process using port ${config.server.port} or use a different port.`
+        );
+      }
+    }
 
     // Setup graceful shutdown
     const shutdown = async (signal: string) => {
