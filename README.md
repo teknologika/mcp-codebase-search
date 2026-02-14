@@ -469,7 +469,32 @@ CONFIG_PATH=./my-config.json mcp-codebase-search
 
 ## MCP Client Configuration
 
-### Claude Desktop
+### Using Codex CLI (Recommended)
+
+The easiest way to configure this MCP server is using the [Codex CLI](https://github.com/teknologika/codex):
+
+```bash
+codex mcp add codebase-search -- mcp-codebase-search
+```
+
+With custom environment variables:
+
+```bash
+codex mcp add codebase-search \
+  --env CONFIG_PATH=~/.codebase-memory/config.json \
+  --env LOG_LEVEL=info \
+  -- mcp-codebase-search
+```
+
+The `codex mcp add` command automatically:
+- Detects your MCP client (Claude Desktop, Cline, etc.)
+- Updates the appropriate configuration file
+- Validates the configuration
+- Restarts the MCP client if needed
+
+### Manual Configuration
+
+#### Claude Desktop
 
 **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
@@ -488,7 +513,7 @@ CONFIG_PATH=./my-config.json mcp-codebase-search
 }
 ```
 
-### Other MCP Clients
+#### Other MCP Clients
 
 For other MCP-compatible clients, use the stdio transport:
 
