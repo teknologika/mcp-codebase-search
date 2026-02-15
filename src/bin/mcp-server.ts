@@ -18,6 +18,7 @@ import { LanceDBClientWrapper } from '../infrastructure/lancedb/lancedb.client.j
 import { HuggingFaceEmbeddingService } from '../domains/embedding/index.js';
 import { CodebaseService } from '../domains/codebase/codebase.service.js';
 import { SearchService } from '../domains/search/search.service.js';
+import { IngestionService } from '../domains/ingestion/ingestion.service.js';
 import { MCPServer } from '../infrastructure/mcp/mcp-server.js';
 
 // Parse command line arguments
@@ -42,6 +43,10 @@ if (!configPath && process.env.CONFIG_PATH) {
 async function main() {
   // For MCP stdio mode, disable ALL logging to avoid interfering with JSON-RPC
   // MCP protocol requires stdout to be ONLY JSON-RPC messages
+  
+  // Suppress transformers.js logging by setting environment variable
+  process.env.TRANSFORMERS_VERBOSITY = 'error';
+  
   // Create a silent logger that does nothing
   const silentLogger = {
     debug: () => {},
@@ -50,6 +55,22 @@ async function main() {
     error: () => {},
     child: () => silentLogger,
   } as any;
+
+  // Suppress all console output to prevent corrupting JSON-RPC protocol
+  // Save original console methods
+  const originalConsole = {
+    log: console.log,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+    debug: console.debug,
+  };
+
+  // Redirect console to stderr (except for critical errors)
+  console.log = (...args: any[]) => originalConsole.error(...args);
+  console.info = (...args: any[]) => originalConsole.error(...args);
+  console.warn = (...args: any[]) => originalConsole.error(...args);
+  console.debug = () => {}; // Suppress debug entirely
 
   try {
     // Load configuration
@@ -68,13 +89,9 @@ async function main() {
     // Initialize embedding service (lazy - will initialize on first use)
     const embeddingService = new HuggingFaceEmbeddingService(config, silentLogger);
     
-    // Initialize the embedding service to ensure it's ready for searches
-    try {
-      await embeddingService.initialize();
-    } catch (error) {
-      // Log to stderr but don't fail - embedding service will retry on first use
-      console.error('Warning: Failed to initialize embedding service on startup:', error);
-    }
+    // DO NOT initialize the embedding service here - let it initialize lazily on first search
+    // This prevents transformers library from writing to stdout during MCP handshake
+    // The embedding service will initialize automatically on the first search request
 
     // Initialize codebase service
     const codebaseService = new CodebaseService(lanceClient, config);
@@ -86,8 +103,15 @@ async function main() {
       config
     );
 
+    // Initialize ingestion service
+    const ingestionService = new IngestionService(
+      embeddingService,
+      lanceClient,
+      config
+    );
+
     // Create and start MCP server
-    const mcpServer = new MCPServer(codebaseService, searchService, config);
+    const mcpServer = new MCPServer(codebaseService, searchService, ingestionService, config);
 
     // Setup graceful shutdown
     const shutdown = async (_signal: string) => {
@@ -116,6 +140,9 @@ async function main() {
   } catch (error) {
     // Only write critical errors to stderr
     console.error('Failed to start MCP server:', error);
+    if (error instanceof Error) {
+      console.error('Error stack:', error.stack);
+    }
     process.exit(1);
   }
 }

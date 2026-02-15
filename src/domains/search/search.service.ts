@@ -132,9 +132,10 @@ export class SearchService {
         return cachedResults;
       }
 
-      // Ensure embedding service is initialized
+      // Ensure embedding service is initialized (lazy initialization)
       if (!this.embeddingService.isInitialized()) {
-        throw new SearchError('Embedding service not initialized');
+        logger.info('Initializing embedding service on first search');
+        await this.embeddingService.initialize();
       }
 
       // Generate query embedding

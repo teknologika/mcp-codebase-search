@@ -363,8 +363,8 @@ describe('MCP Tool Schemas', () => {
   });
 
   describe('ALL_TOOL_SCHEMAS', () => {
-    it('should export all four tool schemas', () => {
-      expect(ALL_TOOL_SCHEMAS).toHaveLength(4);
+    it('should export all seven tool schemas', () => {
+      expect(ALL_TOOL_SCHEMAS).toHaveLength(7);
     });
 
     it('should have unique tool names', () => {
@@ -529,8 +529,8 @@ describe('MCP Tool Schemas', () => {
       expect(validate({ query: 'test', maxResults: 0 })).toBe(false);
       expect(validate({ query: 'test', maxResults: 1 })).toBe(true);
       expect(validate({ query: 'test', maxResults: 50 })).toBe(true);
-      expect(validate({ query: 'test', maxResults: 200 })).toBe(true);
-      expect(validate({ query: 'test', maxResults: 201 })).toBe(false);
+      expect(validate({ query: 'test', maxResults: 100 })).toBe(true);
+      expect(validate({ query: 'test', maxResults: 101 })).toBe(false);
     });
   });
 });

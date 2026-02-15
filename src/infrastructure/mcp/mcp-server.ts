@@ -21,6 +21,7 @@ import { promisify } from 'node:util';
 import type { Config } from '../../shared/types/index.js';
 import type { CodebaseService } from '../../domains/codebase/codebase.service.js';
 import type { SearchService } from '../../domains/search/search.service.js';
+import type { IngestionService } from '../../domains/ingestion/ingestion.service.js';
 import {
   ALL_TOOL_SCHEMAS,
   LIST_CODEBASES_SCHEMA,
@@ -28,8 +29,11 @@ import {
   GET_CODEBASE_STATS_SCHEMA,
   OPEN_CODEBASE_MANAGER_SCHEMA,
   LIST_FILES_SCHEMA,
+  UPDATE_CODEBASE_SCAN_SCHEMA,
+  GET_CHUNK_CONTENT_SCHEMA,
   type SearchCodebasesInput,
   type GetCodebaseStatsInput,
+  type GetChunkContentInput,
 } from './tool-schemas.js';
 
 // Silent logger for MCP server - no logging to avoid interfering with stdio JSON-RPC
@@ -65,15 +69,18 @@ export class MCPServer {
   private ajv: InstanceType<typeof Ajv>;
   private codebaseService: CodebaseService;
   private searchService: SearchService;
+  private ingestionService: IngestionService;
   private config: Config;
 
   constructor(
     codebaseService: CodebaseService,
     searchService: SearchService,
+    ingestionService: IngestionService,
     config: Config
   ) {
     this.codebaseService = codebaseService;
     this.searchService = searchService;
+    this.ingestionService = ingestionService;
     this.config = config;
 
     // Initialize AJV for schema validation
@@ -129,6 +136,10 @@ export class MCPServer {
             return await this.handleOpenCodebaseManager(args);
           case 'list_files':
             return await this.handleListFiles(args);
+          case 'update_codebase_scan':
+            return await this.handleUpdateCodebaseScan(args);
+          case 'get_chunk_content':
+            return await this.handleGetChunkContent(args);
           default:
             throw this.createError(
               MCPErrorCode.TOOL_NOT_FOUND,
@@ -188,7 +199,33 @@ export class MCPServer {
       maxResults: input.maxResults,
     });
 
-    // Format response
+    // If includeContent is false (default), remove content and codebaseName from results
+    if (!input.includeContent) {
+      const filteredResults = results.results.map(result => {
+        const { content, codebaseName, ...rest } = result;
+        return rest;
+      });
+      
+      // Format response with filtered results
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                results: filteredResults,
+                totalResults: results.totalResults,
+                queryTime: results.queryTime,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    // Format response with full results
     return {
       content: [
         {
@@ -329,6 +366,100 @@ export class MCPServer {
       throw this.createError(
         MCPErrorCode.INTERNAL_ERROR,
         `Failed to list files: ${error instanceof Error ? error.message : String(error)}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Handle update_codebase_scan tool call
+   */
+  private async handleUpdateCodebaseScan(args: unknown) {
+    // Validate input
+    this.validateInput(UPDATE_CODEBASE_SCAN_SCHEMA.inputSchema, args);
+
+    const { name } = args as { name: string };
+
+    try {
+      // Get the codebase to find its path
+      const codebases = await this.codebaseService.listCodebases();
+      const codebase = codebases.find(cb => cb.name === name);
+
+      if (!codebase) {
+        throw this.createError(
+          MCPErrorCode.INVALID_PARAMETERS,
+          `Codebase '${name}' not found`
+        );
+      }
+
+      // Re-ingest the codebase
+      const stats = await this.ingestionService.ingestCodebase({
+        name,
+        path: codebase.path,
+        respectGitignore: true,
+        config: this.config,
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              {
+                name,
+                path: codebase.path,
+                totalFiles: stats.totalFiles,
+                supportedFiles: stats.supportedFiles,
+                unsupportedFiles: stats.unsupportedFiles,
+                chunksCreated: stats.chunksCreated,
+                languages: stats.languages,
+                durationMs: stats.durationMs,
+                message: `Successfully refreshed codebase '${name}' with ${stats.chunksCreated} chunks from ${stats.supportedFiles} files`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (error) {
+      throw this.createError(
+        MCPErrorCode.INTERNAL_ERROR,
+        `Failed to update codebase scan: ${error instanceof Error ? error.message : String(error)}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Handle get_chunk_content tool call
+   */
+  private async handleGetChunkContent(args: unknown) {
+    // Validate input
+    this.validateInput(GET_CHUNK_CONTENT_SCHEMA.inputSchema, args);
+    const input = args as GetChunkContentInput;
+
+    try {
+      // Call service to get chunk content
+      const chunk = await this.codebaseService.getChunkContent(
+        input.codebaseName,
+        input.filePath,
+        input.startLine,
+        input.endLine
+      );
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(chunk, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      throw this.createError(
+        MCPErrorCode.INTERNAL_ERROR,
+        `Failed to get chunk content: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
     }

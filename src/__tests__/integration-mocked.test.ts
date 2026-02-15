@@ -179,7 +179,12 @@ export class UserManager {
         }),
       } as any;
 
-      const mcpServer = new MCPServer(mockCodebaseService, mockSearchService, testConfig);
+      const mockIngestionService = {
+        ingestCodebase: vi.fn(),
+        rescanCodebase: vi.fn(),
+      } as any;
+
+      const mcpServer = new MCPServer(mockCodebaseService, mockSearchService, mockIngestionService, testConfig);
 
       expect(mcpServer).toBeDefined();
       expect(typeof mcpServer.start).toBe('function');
@@ -236,6 +241,11 @@ export class UserManager {
         search: vi.fn().mockResolvedValue(mockSearchResults),
       } as any;
 
+      const mockIngestionService = {
+        ingestCodebase: vi.fn(),
+        rescanCodebase: vi.fn(),
+      } as any;
+
       // Verify services work independently
       const codebases = await mockCodebaseService.listCodebases();
       expect(codebases).toEqual(mockCodebases);
@@ -244,7 +254,7 @@ export class UserManager {
       expect(searchResults).toEqual(mockSearchResults);
 
       // Verify MCP server can be created with these services
-      const mcpServer = new MCPServer(mockCodebaseService, mockSearchService, testConfig);
+      const mcpServer = new MCPServer(mockCodebaseService, mockSearchService, mockIngestionService, testConfig);
       expect(mcpServer).toBeDefined();
     });
   });

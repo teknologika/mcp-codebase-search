@@ -1,6 +1,6 @@
 {
   "name": "@teknologika/mcp-codebase-search",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "Local-first semantic search system for codebases using MCP protocol with Tree-sitter parsing and ChromaDB vector storage",
   "type": "module",
   "engines": {
@@ -13,8 +13,9 @@
     "mcp-codebase-manager": "dist/bin/manager.js"
   },
   "scripts": {
-    "build": "tsc && npm run copy-ui",
+    "build": "tsc && npm run copy-ui && npm run chmod-bins",
     "copy-ui": "mkdir -p dist/ui/manager/templates dist/ui/manager/static && cp src/ui/manager/templates/*.hbs dist/ui/manager/templates/ && cp src/ui/manager/static/* dist/ui/manager/static/",
+    "chmod-bins": "chmod +x dist/bin/*.js",
     "dev": "node --watch --env-file=.env src/bin/manager.ts",
     "dev:mcp": "node --watch src/bin/mcp-server.ts",
     "dev:ingest": "node --watch src/bin/ingest.ts",

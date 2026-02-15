@@ -527,4 +527,88 @@ export class CodebaseService {
       );
     }
   }
+
+  /**
+   * Get full content for a specific chunk
+   * @param codebaseName - Name of the codebase
+   * @param filePath - Relative file path
+   * @param startLine - Starting line number
+   * @param endLine - Ending line number
+   * @returns Chunk with full content
+   */
+  async getChunkContent(
+    codebaseName: string,
+    filePath: string,
+    startLine: number,
+    endLine: number
+  ): Promise<{
+    codebaseName: string;
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    language: string;
+    chunkType: string;
+    content: string;
+  }> {
+    try {
+      logger.debug('Getting chunk content', {
+        codebaseName,
+        filePath,
+        startLine,
+        endLine,
+      });
+
+      const table = await this.lanceClient.getOrCreateTable(codebaseName);
+      if (!table) {
+        throw new CodebaseError(`Codebase '${codebaseName}' not found`);
+      }
+
+      // Escape single quotes in filePath for SQL filter
+      const escapedFilePath = filePath.replace(/'/g, "''");
+
+      // Query for the specific chunk
+      const rows = await table
+        .query()
+        .where(
+          `\`filePath\` = '${escapedFilePath}' AND \`startLine\` = ${startLine} AND \`endLine\` = ${endLine}`
+        )
+        .limit(1)
+        .toArray();
+
+      if (rows.length === 0) {
+        throw new CodebaseError(
+          `Chunk not found: ${filePath}:${startLine}-${endLine} in codebase '${codebaseName}'`
+        );
+      }
+
+      const row = rows[0];
+
+      logger.debug('Chunk content retrieved successfully', {
+        codebaseName,
+        filePath,
+        contentLength: row.content?.length || 0,
+      });
+
+      return {
+        codebaseName,
+        filePath: row.filePath || filePath,
+        startLine: row.startLine || startLine,
+        endLine: row.endLine || endLine,
+        language: row.language || 'unknown',
+        chunkType: row.chunkType || 'unknown',
+        content: row.content || '',
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to get chunk content',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName, filePath, startLine, endLine }
+      );
+      throw new CodebaseError(
+        `Failed to get chunk content for ${filePath}:${startLine}-${endLine} in codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
 }

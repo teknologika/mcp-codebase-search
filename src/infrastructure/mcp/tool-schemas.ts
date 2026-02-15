@@ -79,7 +79,7 @@ export const LIST_CODEBASES_SCHEMA = {
  */
 export const SEARCH_CODEBASES_SCHEMA = {
   name: 'search_codebases',
-  description: 'Search indexed codebases using semantic search. Returns code chunks ranked by similarity to the query. Supports optional filters for codebase name, language, and maximum number of results.',
+  description: 'Search indexed codebases using semantic search. Returns code chunks ranked by similarity to the query. By default returns metadata only (file paths, line numbers, similarity scores) for efficient scanning. Use get_chunk_content to retrieve full code content for specific results.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -99,10 +99,15 @@ export const SEARCH_CODEBASES_SCHEMA = {
       },
       maxResults: {
         type: 'number',
-        description: 'Maximum number of results to return (default: 50)',
+        description: 'Maximum number of results to return (default: 20)',
         minimum: 1,
-        maximum: 200,
-        default: 50,
+        maximum: 100,
+        default: 20,
+      },
+      includeContent: {
+        type: 'boolean',
+        description: 'Include full code content in results (default: false). Set to true only when you need the actual code.',
+        default: false,
       },
     },
     required: ['query'],
@@ -143,7 +148,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
             },
             content: {
               type: 'string',
-              description: 'The actual code content of the chunk',
+              description: 'The actual code content of the chunk (only included when includeContent=true)',
             },
             similarityScore: {
               type: 'number',
@@ -153,7 +158,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
             },
             codebaseName: {
               type: 'string',
-              description: 'Name of the codebase containing this chunk',
+              description: 'Name of the codebase containing this chunk (only included when includeContent=true)',
             },
           },
           required: [
@@ -162,9 +167,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
             'endLine',
             'language',
             'chunkType',
-            'content',
             'similarityScore',
-            'codebaseName',
           ],
           additionalProperties: false,
         },
@@ -399,6 +402,171 @@ export const LIST_FILES_SCHEMA = {
 } as const;
 
 /**
+ * Schema for update_codebase_scan tool
+ * 
+ * Refreshes an existing codebase by re-scanning and re-indexing all files
+ */
+export const UPDATE_CODEBASE_SCAN_SCHEMA = {
+  name: 'update_codebase_scan',
+  description: 'Refresh an existing codebase scan by re-ingesting all files. This will detect new files, updated files, and deleted files, then update the index accordingly. Useful when the codebase has changed since the last scan.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description: 'Name of the codebase to refresh',
+        minLength: 1,
+      },
+    },
+    required: ['name'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description: 'Name of the codebase that was refreshed',
+      },
+      path: {
+        type: 'string',
+        description: 'File system path to the codebase directory',
+      },
+      totalFiles: {
+        type: 'number',
+        description: 'Total number of files scanned',
+        minimum: 0,
+      },
+      supportedFiles: {
+        type: 'number',
+        description: 'Number of supported files processed',
+        minimum: 0,
+      },
+      unsupportedFiles: {
+        type: 'number',
+        description: 'Number of unsupported files skipped',
+        minimum: 0,
+      },
+      chunksCreated: {
+        type: 'number',
+        description: 'Total number of code chunks created',
+        minimum: 0,
+      },
+      languages: {
+        type: 'array',
+        description: 'Languages detected in the codebase',
+        items: {
+          type: 'object',
+          properties: {
+            language: {
+              type: 'string',
+              description: 'Programming language name',
+            },
+            fileCount: {
+              type: 'number',
+              description: 'Number of files in this language',
+              minimum: 0,
+            },
+            chunkCount: {
+              type: 'number',
+              description: 'Number of chunks in this language',
+              minimum: 0,
+            },
+          },
+          required: ['language', 'fileCount', 'chunkCount'],
+          additionalProperties: false,
+        },
+      },
+      durationMs: {
+        type: 'number',
+        description: 'Time taken to complete the refresh in milliseconds',
+        minimum: 0,
+      },
+      message: {
+        type: 'string',
+        description: 'Status message about the operation',
+      },
+    },
+    required: ['name', 'path', 'totalFiles', 'supportedFiles', 'unsupportedFiles', 'chunksCreated', 'languages', 'durationMs', 'message'],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
+ * Schema for get_chunk_content tool
+ * 
+ * Retrieves full code content for specific chunks identified by file path and line numbers
+ */
+export const GET_CHUNK_CONTENT_SCHEMA = {
+  name: 'get_chunk_content',
+  description: 'Retrieve full code content for specific chunks. Use this after search_codebases to get the actual code for chunks you want to examine. Provide the codebase name, file path, and line range from search results.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase containing the chunk',
+        minLength: 1,
+      },
+      filePath: {
+        type: 'string',
+        description: 'Relative file path from search results',
+        minLength: 1,
+      },
+      startLine: {
+        type: 'number',
+        description: 'Starting line number of the chunk',
+        minimum: 1,
+      },
+      endLine: {
+        type: 'number',
+        description: 'Ending line number of the chunk',
+        minimum: 1,
+      },
+    },
+    required: ['codebaseName', 'filePath', 'startLine', 'endLine'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Relative file path',
+      },
+      startLine: {
+        type: 'number',
+        description: 'Starting line number',
+        minimum: 1,
+      },
+      endLine: {
+        type: 'number',
+        description: 'Ending line number',
+        minimum: 1,
+      },
+      language: {
+        type: 'string',
+        description: 'Programming language',
+      },
+      chunkType: {
+        type: 'string',
+        description: 'Type of code construct',
+      },
+      content: {
+        type: 'string',
+        description: 'Full code content of the chunk',
+      },
+    },
+    required: ['codebaseName', 'filePath', 'startLine', 'endLine', 'language', 'chunkType', 'content'],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
  * All tool schemas exported as an array for easy registration
  */
 export const ALL_TOOL_SCHEMAS = [
@@ -407,6 +575,8 @@ export const ALL_TOOL_SCHEMAS = [
   GET_CODEBASE_STATS_SCHEMA,
   OPEN_CODEBASE_MANAGER_SCHEMA,
   LIST_FILES_SCHEMA,
+  UPDATE_CODEBASE_SCAN_SCHEMA,
+  GET_CHUNK_CONTENT_SCHEMA,
 ] as const;
 
 /**
@@ -433,6 +603,7 @@ export interface SearchCodebasesInput {
   codebaseName?: string;
   language?: 'csharp' | 'java' | 'javascript' | 'typescript' | 'python';
   maxResults?: number;
+  includeContent?: boolean;
 }
 
 export interface SearchCodebasesOutput {
@@ -497,4 +668,41 @@ export interface ListFilesOutput {
   }>;
   codebaseName: string;
   totalFiles: number;
+}
+
+export interface UpdateCodebaseScanInput {
+  name: string;
+}
+
+export interface UpdateCodebaseScanOutput {
+  name: string;
+  path: string;
+  totalFiles: number;
+  supportedFiles: number;
+  unsupportedFiles: number;
+  chunksCreated: number;
+  languages: Array<{
+    language: string;
+    fileCount: number;
+    chunkCount: number;
+  }>;
+  durationMs: number;
+  message: string;
+}
+
+export interface GetChunkContentInput {
+  codebaseName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+
+export interface GetChunkContentOutput {
+  codebaseName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  language: string;
+  chunkType: string;
+  content: string;
 }

@@ -205,7 +205,8 @@ function loadConfigFile(configPath?: string): Partial<Config> {
   const resolvedPath = expandPath(resolve(configPath));
   
   if (!existsSync(resolvedPath)) {
-    throw new Error(`Configuration file not found: ${resolvedPath}`);
+    // Return empty config instead of throwing - let defaults be used
+    return {};
   }
 
   try {
