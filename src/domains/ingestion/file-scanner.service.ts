@@ -53,6 +53,26 @@ export interface ScanOptions {
  */
 export class FileScannerService {
   private languageDetection: LanguageDetectionService;
+  
+  // Directories to always skip, regardless of gitignore
+  private readonly ALWAYS_SKIP_DIRS = new Set([
+    'node_modules',
+    '.git',
+    'dist',
+    'build',
+    'out',
+    'coverage',
+    '.next',
+    '.nuxt',
+    '.cache',
+    'vendor',
+    '__pycache__',
+    '.pytest_cache',
+    '.mypy_cache',
+    'target', // Rust
+    'bin', // Java/C#
+    'obj', // C#
+  ]);
 
   constructor() {
     this.languageDetection = new LanguageDetectionService();
@@ -151,6 +171,13 @@ export class FileScannerService {
         continue;
       }
 
+      // Always skip certain directories (node_modules, dist, etc.)
+      if (entry.isDirectory() && this.ALWAYS_SKIP_DIRS.has(entry.name)) {
+        statistics.skippedByGitignore++;
+        logger.debug('Skipping excluded directory', { path: relativePath, reason: 'always-skip-list' });
+        continue;
+      }
+
       // Check gitignore filter
       if (gitignoreFilter && gitignoreFilter.ignores(relativePath)) {
         statistics.skippedByGitignore++;
@@ -212,27 +239,55 @@ export class FileScannerService {
   }
 
   /**
-   * Load .gitignore file from directory
+   * Load .gitignore files from directory and parent directories
    * 
-   * @param directoryPath - Directory to search for .gitignore
-   * @returns Ignore instance or null if not found
+   * @param directoryPath - Directory to start searching from
+   * @returns Ignore instance with all parent .gitignore patterns or null
    */
   private async loadGitignore(directoryPath: string): Promise<Ignore | null> {
-    const gitignorePath = path.join(directoryPath, '.gitignore');
+    const ig = ignore();
+    let hasPatterns = false;
+    let currentPath = path.resolve(directoryPath);
+    const root = path.parse(currentPath).root;
 
-    try {
-      const content = await fs.readFile(gitignorePath, 'utf-8');
-      const ig = ignore().add(content);
-      logger.debug('Loaded .gitignore', { path: gitignorePath });
-      return ig;
-    } catch (error) {
-      // .gitignore not found or not readable - this is fine
-      logger.debug(
-        'No .gitignore found or not readable',
-        { path: gitignorePath }
-      );
+    // Walk up the directory tree until we hit the root
+    while (currentPath !== root) {
+      const gitignorePath = path.join(currentPath, '.gitignore');
+
+      try {
+        const content = await fs.readFile(gitignorePath, 'utf-8');
+        ig.add(content);
+        hasPatterns = true;
+        logger.debug('Loaded .gitignore', { path: gitignorePath });
+      } catch (error) {
+        // .gitignore not found at this level - continue up
+      }
+
+      // Stop if we find a .git directory (project root)
+      try {
+        const gitDir = path.join(currentPath, '.git');
+        await fs.access(gitDir);
+        logger.debug('Found .git directory, stopping .gitignore search', { path: currentPath });
+        break;
+      } catch {
+        // No .git directory, continue up
+      }
+
+      // Move up one directory
+      const parentPath = path.dirname(currentPath);
+      if (parentPath === currentPath) {
+        // Reached root
+        break;
+      }
+      currentPath = parentPath;
+    }
+
+    if (!hasPatterns) {
+      logger.debug('No .gitignore files found in directory tree');
       return null;
     }
+
+    return ig;
   }
 
   /**

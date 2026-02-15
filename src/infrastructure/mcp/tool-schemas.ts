@@ -567,6 +567,66 @@ export const GET_CHUNK_CONTENT_SCHEMA = {
 } as const;
 
 /**
+ * Schema for get_file_content tool
+ * 
+ * Retrieves entire file content by reconstructing from all chunks
+ */
+export const GET_FILE_CONTENT_SCHEMA = {
+  name: 'get_file_content',
+  description: 'Retrieve entire file content by reconstructing from all indexed chunks. Use this when you need the complete file after identifying it through search. Provide the codebase name and file path.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase containing the file',
+        minLength: 1,
+      },
+      filePath: {
+        type: 'string',
+        description: 'Relative file path from search results',
+        minLength: 1,
+      },
+    },
+    required: ['codebaseName', 'filePath'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Relative file path',
+      },
+      language: {
+        type: 'string',
+        description: 'Programming language',
+      },
+      content: {
+        type: 'string',
+        description: 'Full file content reconstructed from all chunks',
+      },
+      chunkCount: {
+        type: 'number',
+        description: 'Number of chunks that made up this file',
+        minimum: 0,
+      },
+      totalLines: {
+        type: 'number',
+        description: 'Total number of lines in the file',
+        minimum: 0,
+      },
+    },
+    required: ['codebaseName', 'filePath', 'language', 'content', 'chunkCount', 'totalLines'],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
  * All tool schemas exported as an array for easy registration
  */
 export const ALL_TOOL_SCHEMAS = [
@@ -577,6 +637,7 @@ export const ALL_TOOL_SCHEMAS = [
   LIST_FILES_SCHEMA,
   UPDATE_CODEBASE_SCAN_SCHEMA,
   GET_CHUNK_CONTENT_SCHEMA,
+  GET_FILE_CONTENT_SCHEMA,
 ] as const;
 
 /**
@@ -705,4 +766,18 @@ export interface GetChunkContentOutput {
   language: string;
   chunkType: string;
   content: string;
+}
+
+export interface GetFileContentInput {
+  codebaseName: string;
+  filePath: string;
+}
+
+export interface GetFileContentOutput {
+  codebaseName: string;
+  filePath: string;
+  language: string;
+  content: string;
+  chunkCount: number;
+  totalLines: number;
 }

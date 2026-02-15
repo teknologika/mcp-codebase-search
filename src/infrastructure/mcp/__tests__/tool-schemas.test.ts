@@ -363,8 +363,8 @@ describe('MCP Tool Schemas', () => {
   });
 
   describe('ALL_TOOL_SCHEMAS', () => {
-    it('should export all seven tool schemas', () => {
-      expect(ALL_TOOL_SCHEMAS).toHaveLength(7);
+    it('should export all eight tool schemas', () => {
+      expect(ALL_TOOL_SCHEMAS).toHaveLength(8);
     });
 
     it('should have unique tool names', () => {

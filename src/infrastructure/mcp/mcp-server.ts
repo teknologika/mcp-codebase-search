@@ -31,9 +31,11 @@ import {
   LIST_FILES_SCHEMA,
   UPDATE_CODEBASE_SCAN_SCHEMA,
   GET_CHUNK_CONTENT_SCHEMA,
+  GET_FILE_CONTENT_SCHEMA,
   type SearchCodebasesInput,
   type GetCodebaseStatsInput,
   type GetChunkContentInput,
+  type GetFileContentInput,
 } from './tool-schemas.js';
 
 // Silent logger for MCP server - no logging to avoid interfering with stdio JSON-RPC
@@ -140,6 +142,8 @@ export class MCPServer {
             return await this.handleUpdateCodebaseScan(args);
           case 'get_chunk_content':
             return await this.handleGetChunkContent(args);
+          case 'get_file_content':
+            return await this.handleGetFileContent(args);
           default:
             throw this.createError(
               MCPErrorCode.TOOL_NOT_FOUND,
@@ -202,6 +206,7 @@ export class MCPServer {
     // If includeContent is false (default), remove content and codebaseName from results
     if (!input.includeContent) {
       const filteredResults = results.results.map(result => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { content, codebaseName, ...rest } = result;
         return rest;
       });
@@ -460,6 +465,38 @@ export class MCPServer {
       throw this.createError(
         MCPErrorCode.INTERNAL_ERROR,
         `Failed to get chunk content: ${error instanceof Error ? error.message : String(error)}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Handle get_file_content tool call
+   */
+  private async handleGetFileContent(args: unknown) {
+    // Validate input
+    this.validateInput(GET_FILE_CONTENT_SCHEMA.inputSchema, args);
+    const input = args as GetFileContentInput;
+
+    try {
+      // Call service to get file content
+      const file = await this.codebaseService.getFileContent(
+        input.codebaseName,
+        input.filePath
+      );
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(file, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      throw this.createError(
+        MCPErrorCode.INTERNAL_ERROR,
+        `Failed to get file content: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
     }
