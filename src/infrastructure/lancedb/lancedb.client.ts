@@ -337,4 +337,28 @@ export class LanceDBClientWrapper {
   static getSchemaVersion(): string {
     return SCHEMA_VERSION;
   }
+  /**
+   * Close the LanceDB connection and cleanup resources
+   */
+  async close(): Promise<void> {
+    if (this.connection) {
+      try {
+        this.logger.debug('Closing LanceDB connection');
+        // LanceDB connections are automatically cleaned up, but we set to null
+        this.connection = null;
+        this.initialized = false;
+        this.logger.debug('LanceDB connection closed successfully');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'Failed to close LanceDB connection',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        throw new LanceDBError(
+          `Failed to close LanceDB connection: ${errorMessage}`,
+          error
+        );
+      }
+    }
+  }
 }

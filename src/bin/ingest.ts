@@ -223,9 +223,11 @@ async function main() {
       });
     }
 
-    // Give LanceDB time to cleanup before exit
-    await new Promise(resolve => setTimeout(resolve, 100));
-    process.exit(0);
+    // Gracefully close LanceDB connection
+    await lanceClient.close();
+    
+    // Use process.exitCode instead of process.exit() for graceful shutdown
+    process.exitCode = 0;
   } catch (error) {
     console.error('');
     console.error(options.rescan ? '✗ Rescan failed' : '✗ Ingestion failed');
@@ -248,7 +250,7 @@ async function main() {
     console.error('Tip: Set DEBUG=1 for detailed error information');
     console.error('');
     
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 

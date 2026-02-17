@@ -397,13 +397,11 @@ export class MCPServer {
         );
       }
 
-      // Re-ingest the codebase
-      const stats = await this.ingestionService.ingestCodebase({
+      // Use rescanCodebase for incremental updates (safer than full re-ingestion)
+      const result = await this.ingestionService.rescanCodebase(
         name,
-        path: codebase.path,
-        respectGitignore: true,
-        config: this.config,
-      });
+        codebase.path
+      );
 
       return {
         content: [
@@ -413,13 +411,15 @@ export class MCPServer {
               {
                 name,
                 path: codebase.path,
-                totalFiles: stats.totalFiles,
-                supportedFiles: stats.supportedFiles,
-                unsupportedFiles: stats.unsupportedFiles,
-                chunksCreated: stats.chunksCreated,
-                languages: stats.languages,
-                durationMs: stats.durationMs,
-                message: `Successfully refreshed codebase '${name}' with ${stats.chunksCreated} chunks from ${stats.supportedFiles} files`,
+                filesScanned: result.filesScanned,
+                filesAdded: result.filesAdded,
+                filesModified: result.filesModified,
+                filesDeleted: result.filesDeleted,
+                filesUnchanged: result.filesUnchanged,
+                chunksAdded: result.chunksAdded,
+                chunksDeleted: result.chunksDeleted,
+                durationMs: result.durationMs,
+                message: `Successfully refreshed codebase '${name}': ${result.filesAdded} added, ${result.filesModified} modified, ${result.filesDeleted} deleted, ${result.filesUnchanged} unchanged`,
               },
               null,
               2
