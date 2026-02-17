@@ -10,7 +10,7 @@ export type Language = "csharp" | "java" | "javascript" | "typescript" | "python
 /**
  * Types of code chunks that can be extracted
  */
-export type ChunkType = "function" | "class" | "method" | "interface" | "property" | "field";
+export type ChunkType = "function" | "class" | "method" | "interface" | "property" | "field" | "file";
 
 /**
  * Log levels for structured logging
@@ -41,6 +41,7 @@ export interface Config {
     maxFileSize: number;
     maxChunkTokens: number;
     chunkOverlapTokens: number;
+    storeFullFiles: boolean; // Store complete file content in DB for portability
   };
   search: {
     defaultMaxResults: number;
@@ -65,6 +66,7 @@ export interface Chunk {
   isTestFile?: boolean;
   isLibraryFile?: boolean;
   fileHash?: string; // MD5 hash of the source file (added during ingestion)
+  fullFileContent?: string; // Complete file content (stored once per file for portability)
 }
 
 /**
@@ -179,6 +181,8 @@ export interface IngestionStats {
   chunksCreated: number;
   languages: Map<string, LanguageStats>;
   durationMs: number;
+  filesSuccessfullyParsed?: number; // Files that produced at least one chunk
+  filesFailedToParse?: number; // Files that were attempted but failed or produced no chunks
 }
 
 /**

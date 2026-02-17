@@ -14,7 +14,8 @@ import type {
 } from '../../shared/types/index.js';
 import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.client.js';
 import { createLogger } from '../../shared/logging/index.js';
-import { stat } from 'node:fs/promises';
+import { stat, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const rootLogger = createLogger('info');
 const logger = rootLogger.child('CodebaseService');
@@ -619,74 +620,111 @@ export class CodebaseService {
    * @returns Complete file content with metadata
    */
   async getFileContent(
-    codebaseName: string,
-    filePath: string
-  ): Promise<{
-    codebaseName: string;
-    filePath: string;
-    language: string;
-    content: string;
-    chunkCount: number;
-    totalLines: number;
-  }> {
-    try {
-      logger.debug('Getting file content', { codebaseName, filePath });
+      codebaseName: string,
+      filePath: string
+    ): Promise<{
+      codebaseName: string;
+      filePath: string;
+      language: string;
+      content: string;
+      chunkCount: number;
+      totalLines: number;
+    }> {
+      try {
+        logger.debug('Getting file content', { codebaseName, filePath });
 
-      const table = await this.lanceClient.getOrCreateTable(codebaseName);
-      if (!table) {
-        throw new CodebaseError(`Codebase '${codebaseName}' not found`);
-      }
+        const table = await this.lanceClient.getOrCreateTable(codebaseName);
+        if (!table) {
+          throw new CodebaseError(`Codebase '${codebaseName}' not found`);
+        }
 
-      // Escape single quotes in filePath for SQL filter
-      const escapedFilePath = filePath.replace(/'/g, "''");
+        // Get the codebase root path
+        const codebasePath = await this.getCodebasePath(codebaseName);
 
-      // Query for all chunks of this file, ordered by line number
-      const rows = await table
-        .query()
-        .where(`\`filePath\` = '${escapedFilePath}'`)
-        .toArray();
+        // Normalize the file path - handle both relative and absolute paths
+        let normalizedFilePath = filePath;
+        if (path.isAbsolute(filePath)) {
+          // Convert absolute path to relative path from codebase root
+          normalizedFilePath = path.relative(codebasePath, filePath);
+        }
 
-      if (rows.length === 0) {
+        // Escape single quotes in filePath for SQL filter
+        const escapedFilePath = normalizedFilePath.replace(/'/g, "''");
+
+        // Query for all chunks of this file
+        const rows = await table
+          .query()
+          .where(`\`filePath\` = '${escapedFilePath}'`)
+          .toArray();
+
+        if (rows.length === 0) {
+          throw new CodebaseError(
+            `File not found: ${normalizedFilePath} in codebase '${codebaseName}'`
+          );
+        }
+
+        // Try to get full file content from the first chunk (where it's stored)
+        let content: string;
+        const firstChunk = rows.find(row => row.fullFileContent);
+        
+        if (firstChunk && firstChunk.fullFileContent) {
+          content = firstChunk.fullFileContent;
+          logger.debug('Retrieved full file content from database', {
+            codebaseName,
+            filePath: normalizedFilePath,
+            contentLength: content.length,
+          });
+        } else {
+          // Fallback: read from disk if fullFileContent not available
+          logger.warn('Full file content not in database, falling back to disk read', {
+            codebaseName,
+            filePath: normalizedFilePath,
+          });
+          
+          const absoluteFilePath = path.join(codebasePath, normalizedFilePath);
+          try {
+            content = await readFile(absoluteFilePath, 'utf-8');
+          } catch (error) {
+            throw new CodebaseError(
+              `File content not in database and source file not found on disk: ${absoluteFilePath}. Re-ingest the codebase with storeFullFiles enabled.`,
+              error
+            );
+          }
+        }
+
+        // Get metadata from chunks
+        const language = rows[0].language || 'unknown';
+        const lines = content.split('\n');
+        const totalLines = lines.length;
+
+        logger.debug('File content retrieved successfully', {
+          codebaseName,
+          filePath: normalizedFilePath,
+          chunkCount: rows.length,
+          contentLength: content.length,
+          totalLines,
+          fromDatabase: !!firstChunk?.fullFileContent,
+        });
+
+        return {
+          codebaseName,
+          filePath: normalizedFilePath,
+          language,
+          content,
+          chunkCount: rows.length,
+          totalLines,
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(
+          'Failed to get file content',
+          error instanceof Error ? error : new Error(errorMessage),
+          { codebaseName, filePath }
+        );
         throw new CodebaseError(
-          `File not found: ${filePath} in codebase '${codebaseName}'`
+          `Failed to get file content for ${filePath} in codebase '${codebaseName}': ${errorMessage}`,
+          error
         );
       }
-
-      // Sort chunks by startLine to ensure correct order
-      rows.sort((a, b) => (a.startLine || 0) - (b.startLine || 0));
-
-      // Reconstruct file content from chunks
-      const content = rows.map(row => row.content || '').join('\n');
-      const language = rows[0].language || 'unknown';
-      const maxLine = Math.max(...rows.map(row => row.endLine || 0));
-
-      logger.debug('File content retrieved successfully', {
-        codebaseName,
-        filePath,
-        chunkCount: rows.length,
-        contentLength: content.length,
-        totalLines: maxLine,
-      });
-
-      return {
-        codebaseName,
-        filePath,
-        language,
-        content,
-        chunkCount: rows.length,
-        totalLines: maxLine,
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(
-        'Failed to get file content',
-        error instanceof Error ? error : new Error(errorMessage),
-        { codebaseName, filePath }
-      );
-      throw new CodebaseError(
-        `Failed to get file content for ${filePath} in codebase '${codebaseName}': ${errorMessage}`,
-        error
-      );
     }
-  }
 }

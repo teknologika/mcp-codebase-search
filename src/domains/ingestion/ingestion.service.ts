@@ -22,6 +22,7 @@ import { createLogger, startTimer, logMemoryUsage } from '../../shared/logging/i
 import type { Logger } from '../../shared/logging/logger.js';
 import { classifyFile } from '../../shared/utils/file-classification.js';
 import { calculateFileHash } from '../../shared/utils/file-hash.js';
+import { readFile } from 'fs/promises';
 
 const rootLogger = createLogger('info');
 
@@ -131,6 +132,8 @@ export class IngestionService {
 
       const allChunks: Chunk[] = [];
       const languageStats = new Map<string, { fileCount: number; chunkCount: number }>();
+      let filesSuccessfullyParsed = 0;
+      let filesFailedToParse = 0;
 
       for (let i = 0; i < supportedFiles.length; i++) {
         const file = supportedFiles[i];
@@ -147,15 +150,59 @@ export class IngestionService {
           // Calculate file hash for change detection
           const fileHash = await calculateFileHash(file.path);
 
-          const chunks = await this.parser.parseFile(file.path, file.language as any);
+          // Read full file content if storeFullFiles is enabled
+          let fullFileContent: string | undefined;
+          if (this.config.ingestion.storeFullFiles) {
+            try {
+              fullFileContent = await readFile(file.path, 'utf-8');
+            } catch (error) {
+              this.logger.warn('Failed to read full file content, continuing without it', {
+                filePath: file.relativePath,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
+          let chunks = await this.parser.parseFile(file.path, file.language as any);
+          
+          // If no chunks were extracted, create a file-level chunk with full content
+          if (chunks.length === 0 && fullFileContent) {
+            this.logger.info('No chunks extracted, creating file-level chunk', {
+              filePath: file.relativePath,
+              language: file.language,
+            });
+            
+            const lineCount = fullFileContent.split('\n').length;
+            chunks = [{
+              content: fullFileContent,
+              startLine: 1,
+              endLine: lineCount,
+              chunkType: 'file' as const,
+              language: file.language as any,
+              filePath: file.path,
+            }];
+          }
+          
+          // Track successful parse only if chunks were produced
+          if (chunks.length > 0) {
+            filesSuccessfullyParsed++;
+          } else {
+            filesFailedToParse++;
+            this.logger.warn('File parsed but produced no chunks and no full content available', {
+              filePath: file.relativePath,
+              language: file.language,
+            });
+          }
           
           // Classify file and add metadata to chunks
           const classification = classifyFile(file.relativePath);
-          const chunksWithMetadata = chunks.map(chunk => ({
+          const chunksWithMetadata = chunks.map((chunk, index) => ({
             ...chunk,
             isTestFile: classification.isTest,
             isLibraryFile: classification.isLibrary,
             fileHash,
+            // Store full file content only on the first chunk to avoid duplication
+            fullFileContent: index === 0 ? fullFileContent : undefined,
           }));
           
           allChunks.push(...chunksWithMetadata);
@@ -177,6 +224,7 @@ export class IngestionService {
           });
         } catch (error) {
           // Log error but continue with other files
+          filesFailedToParse++;
           this.logger.error(
             'Failed to parse file, skipping',
             error instanceof Error ? error : new Error(String(error)),
@@ -256,6 +304,8 @@ export class IngestionService {
         chunksCreated: allChunks.length,
         languages: this.convertLanguageStats(languageStats),
         durationMs,
+        filesSuccessfullyParsed,
+        filesFailedToParse,
       };
 
       this.logger.info('Ingestion completed successfully', {
@@ -263,6 +313,8 @@ export class IngestionService {
         ...stats,
         chunkDiff,
         previousChunkCount,
+        filesSuccessfullyParsed,
+        filesFailedToParse,
       });
 
       return stats;
@@ -418,6 +470,7 @@ export class IngestionService {
         isTestFile: chunk.isTestFile || false,
         isLibraryFile: chunk.isLibraryFile || false,
         fileHash: chunk.fileHash || '',
+        fullFileContent: chunk.fullFileContent || null, // Store full file content if available
         ingestionTimestamp,
         _codebaseName: codebaseName,
         _path: codebasePath,

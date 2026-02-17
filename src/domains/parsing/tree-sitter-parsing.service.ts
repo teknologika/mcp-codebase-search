@@ -158,40 +158,49 @@ export class TreeSitterParsingService {
    * @returns Array of extracted chunks
    */
   private extractChunks(
-    node: Parser.SyntaxNode,
-    sourceCode: string,
-    filePath: string,
-    language: Language
-  ): Chunk[] {
-    const chunks: Chunk[] = [];
-    const nodeTypeMappings = NODE_TYPE_MAPPINGS[language];
+      node: Parser.SyntaxNode,
+      sourceCode: string,
+      filePath: string,
+      language: Language
+    ): Chunk[] {
+      const chunks: Chunk[] = [];
+      const nodeTypeMappings = NODE_TYPE_MAPPINGS[language];
 
-    // Check if this node is a semantic chunk we want to extract
-    const chunkType = nodeTypeMappings[node.type];
-    
-    if (chunkType) {
-      // For Python, handle methods specially (function_definition inside class_definition)
-      if (language === 'python' && node.type === 'function_definition') {
-        // Check if this function is inside a class (making it a method)
-        const isMethod = this.isInsideClass(node);
-        const actualChunkType = isMethod ? 'method' : 'function';
-        
-        chunks.push(this.createChunk(node, sourceCode, filePath, language, actualChunkType));
-      } else {
-        chunks.push(this.createChunk(node, sourceCode, filePath, language, chunkType));
+      // Check if this node is a semantic chunk we want to extract
+      const chunkType = nodeTypeMappings[node.type];
+
+      if (chunkType) {
+        // For Python, handle methods specially (function_definition inside class_definition)
+        if (language === 'python' && node.type === 'function_definition') {
+          // Check if this function is inside a class (making it a method)
+          const isMethod = this.isInsideClass(node);
+          const actualChunkType = isMethod ? 'method' : 'function';
+
+          chunks.push(this.createChunk(node, sourceCode, filePath, language, actualChunkType));
+        } else {
+          chunks.push(this.createChunk(node, sourceCode, filePath, language, chunkType));
+        }
+
+        // Container types (class, interface) should continue recursion to extract members
+        // Non-container types (function, method, property, field) should stop to avoid duplicating inline code
+        const containerTypes = ['class', 'interface'];
+        if (!containerTypes.includes(chunkType)) {
+          // This is a function/method/property - don't recurse into children
+          // to avoid extracting inline arrow functions, nested functions, etc.
+          return chunks;
+        }
       }
-    }
 
-    // Recursively process child nodes to handle nested structures
-    for (let i = 0; i < node.childCount; i++) {
-      const child = node.child(i);
-      if (child) {
-        chunks.push(...this.extractChunks(child, sourceCode, filePath, language));
+      // Recursively process child nodes for containers or non-extracted nodes
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        if (child) {
+          chunks.push(...this.extractChunks(child, sourceCode, filePath, language));
+        }
       }
-    }
 
-    return chunks;
-  }
+      return chunks;
+    }
 
   /**
    * Check if a node is inside a class definition (for Python method detection)

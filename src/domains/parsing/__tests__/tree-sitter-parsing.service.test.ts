@@ -353,11 +353,20 @@ function createUser(name: string, age: number): User {
 
       const chunks = await service.parseFile(filePath, 'javascript');
 
-      // Should extract both outer and inner classes and their methods
+      // Should extract outer class and method1
+      // Inner class is part of method1's implementation and not extracted separately
+      // This prevents duplication of nested code
       expect(chunks.length).toBeGreaterThanOrEqual(2);
       
       const classChunks = chunks.filter(c => c.chunkType === 'class');
-      expect(classChunks.length).toBeGreaterThanOrEqual(2); // Outer and Inner
+      expect(classChunks.length).toBe(1); // Only Outer class
+      
+      const methodChunks = chunks.filter(c => c.chunkType === 'method');
+      expect(methodChunks.length).toBe(1); // Only method1
+      
+      // Verify method1 contains the inner class in its content
+      const method1 = methodChunks[0];
+      expect(method1.content).toContain('class Inner');
     });
 
     it('should handle malformed code gracefully', async () => {

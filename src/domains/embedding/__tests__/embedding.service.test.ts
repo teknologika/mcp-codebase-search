@@ -45,6 +45,7 @@ describe('HuggingFaceEmbeddingService', () => {
         maxFileSize: 1048576,
         maxChunkTokens: 512,
         chunkOverlapTokens: 50,
+        storeFullFiles: true,
       },
       search: {
         defaultMaxResults: 50,
