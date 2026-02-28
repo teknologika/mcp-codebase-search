@@ -19,10 +19,10 @@ import { getTokenCounter } from '../../shared/utils/token-counter.js';
 const logger = createLogger('info').child('TreeSitterParsingService');
 
 /**
- * Node type mappings for each language
+ * Node type mappings for each language that supports AST parsing
  * Maps Tree-sitter node types to our ChunkType
  */
-const NODE_TYPE_MAPPINGS: Record<Language, Record<string, ChunkType>> = {
+const NODE_TYPE_MAPPINGS: Partial<Record<Language, Record<string, ChunkType>>> = {
   csharp: {
     class_declaration: 'class',
     method_declaration: 'method',
@@ -70,7 +70,7 @@ export class TreeSitterParsingService {
    * Initialize Tree-sitter parsers for all supported languages
    */
   private initializeParsers(): void {
-    const languageConfigs: Record<Language, any> = {
+    const languageConfigs: Partial<Record<Language, any>> = {
       csharp: TreeSitterCSharp,
       java: TreeSitterJava,
       javascript: TreeSitterJavaScript,
@@ -165,6 +165,11 @@ export class TreeSitterParsingService {
     ): Chunk[] {
       const chunks: Chunk[] = [];
       const nodeTypeMappings = NODE_TYPE_MAPPINGS[language];
+
+      // If no mappings exist for this language, it doesn't support AST parsing
+      if (!nodeTypeMappings) {
+        return chunks;
+      }
 
       // Check if this node is a semantic chunk we want to extract
       const chunkType = nodeTypeMappings[node.type];
@@ -330,7 +335,7 @@ export class TreeSitterParsingService {
    * @returns True if the node is a comment or docstring
    */
   private isCommentOrDocstring(node: Parser.SyntaxNode, language: Language): boolean {
-    const commentTypes: Record<Language, string[]> = {
+    const commentTypes: Partial<Record<Language, string[]>> = {
       csharp: ['comment', 'documentation_comment'],
       java: ['comment', 'line_comment', 'block_comment'],
       javascript: ['comment'],

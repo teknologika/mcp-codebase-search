@@ -59,7 +59,7 @@
                 <select name="codebaseName" class="form-input">
                     <option value="">All Codebases</option>
                     {{#each codebases}}
-                    <option value="{{name}}">{{name}}</option>
+                    <option value="{{name}}" {{#if (eq ../selectedCodebaseName name)}}selected{{/if}}>{{name}}</option>
                     {{/each}}
                 </select>
             </div>

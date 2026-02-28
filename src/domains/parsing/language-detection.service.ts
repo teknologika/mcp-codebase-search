@@ -2,7 +2,7 @@
  * Language Detection Service
  * 
  * Provides language detection from file extensions and maps to Tree-sitter grammar names.
- * Supports: C#, Java, JavaScript, TypeScript, Python
+ * Supports: C#, Java, JavaScript, TypeScript, Python, JSON, Markdown, YAML, Dockerfile, and plain text
  */
 
 import { Language } from '../../shared/types/index.js';
@@ -12,6 +12,7 @@ import path from 'node:path';
  * Mapping of file extensions to supported languages
  */
 export const LANGUAGE_SUPPORT: Record<string, Language> = {
+  // Programming languages (AST-parsed)
   '.cs': 'csharp',
   '.java': 'java',
   '.js': 'javascript',
@@ -19,17 +20,63 @@ export const LANGUAGE_SUPPORT: Record<string, Language> = {
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.py': 'python',
+  
+  // Configuration and data files (plain text)
+  '.json': 'json',
+  '.jsonc': 'json',
+  
+  // Documentation files (plain text)
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  
+  // YAML files (plain text)
+  '.yml': 'yaml',
+  '.yaml': 'yaml',
+  
+  // Plain text files
+  '.txt': 'plaintext',
+  '.text': 'plaintext',
+  '.log': 'plaintext',
+  '.env': 'plaintext',
+  '.env.example': 'plaintext',
+  '.env.local': 'plaintext',
+  '.env.development': 'plaintext',
+  '.env.production': 'plaintext',
+  '.gitignore': 'plaintext',
+  '.dockerignore': 'plaintext',
+  '.editorconfig': 'plaintext',
+  '.prettierrc': 'plaintext',
+  '.eslintrc': 'plaintext',
 };
 
 /**
- * Mapping of languages to Tree-sitter grammar package names
+ * Special filename patterns that should be treated as specific languages
+ * Checked before extension-based detection
  */
-export const TREE_SITTER_GRAMMARS: Record<Language, string> = {
+export const FILENAME_PATTERNS: Array<{ pattern: RegExp; language: Language }> = [
+  { pattern: /^Dockerfile$/i, language: 'dockerfile' },
+  { pattern: /^Dockerfile\./i, language: 'dockerfile' }, // Dockerfile.dev, etc.
+  { pattern: /^\.env(\.|$)/i, language: 'plaintext' }, // .env, .env.local, etc.
+  { pattern: /^package\.json$/i, language: 'json' },
+  { pattern: /^tsconfig.*\.json$/i, language: 'json' },
+  { pattern: /^\.eslintrc\.json$/i, language: 'json' },
+  { pattern: /^README/i, language: 'markdown' },
+  { pattern: /^CHANGELOG/i, language: 'markdown' },
+  { pattern: /^CONTRIBUTING/i, language: 'markdown' },
+  { pattern: /^LICENSE/i, language: 'plaintext' },
+];
+
+/**
+ * Mapping of languages to Tree-sitter grammar package names
+ * Only for languages that support AST parsing
+ */
+export const TREE_SITTER_GRAMMARS: Partial<Record<Language, string>> = {
   csharp: 'tree-sitter-c-sharp',
   java: 'tree-sitter-java',
   javascript: 'tree-sitter-javascript',
   typescript: 'tree-sitter-typescript',
   python: 'tree-sitter-python',
+  // Non-code languages don't have Tree-sitter grammars
 };
 
 /**
@@ -37,12 +84,22 @@ export const TREE_SITTER_GRAMMARS: Record<Language, string> = {
  */
 export class LanguageDetectionService {
   /**
-   * Detect the language of a file based on its extension
+   * Detect the language of a file based on its filename and extension
    * 
    * @param filePath - Path to the file
    * @returns The detected language, or null if unsupported
    */
   detectLanguage(filePath: string): Language | null {
+    const basename = path.basename(filePath);
+    
+    // Check filename patterns first (e.g., Dockerfile, package.json)
+    for (const { pattern, language } of FILENAME_PATTERNS) {
+      if (pattern.test(basename)) {
+        return language;
+      }
+    }
+    
+    // Fall back to extension-based detection
     const ext = path.extname(filePath).toLowerCase();
     return LANGUAGE_SUPPORT[ext] || null;
   }
@@ -61,10 +118,20 @@ export class LanguageDetectionService {
    * Get the Tree-sitter grammar name for a language
    * 
    * @param language - The language
-   * @returns The Tree-sitter grammar package name
+   * @returns The Tree-sitter grammar package name, or null if not applicable
    */
-  getGrammarName(language: Language): string {
-    return TREE_SITTER_GRAMMARS[language];
+  getGrammarName(language: Language): string | null {
+    return TREE_SITTER_GRAMMARS[language] || null;
+  }
+  
+  /**
+   * Check if a language requires AST parsing with Tree-sitter
+   * 
+   * @param language - The language
+   * @returns True if the language should be parsed with Tree-sitter
+   */
+  requiresAstParsing(language: Language): boolean {
+    return TREE_SITTER_GRAMMARS[language] !== undefined;
   }
 
   /**

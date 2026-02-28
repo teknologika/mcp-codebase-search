@@ -3,9 +3,19 @@
  */
 
 /**
- * Supported programming languages
+ * Supported programming languages and file types
  */
-export type Language = "csharp" | "java" | "javascript" | "typescript" | "python";
+export type Language = 
+  | "csharp" 
+  | "java" 
+  | "javascript" 
+  | "typescript" 
+  | "python"
+  | "json"
+  | "markdown"
+  | "yaml"
+  | "dockerfile"
+  | "plaintext";
 
 /**
  * Types of code chunks that can be extracted

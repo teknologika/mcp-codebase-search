@@ -13,9 +13,11 @@
  * Requirements: 2.1, 2.3, 2.5, 2.6, 6.2, 6.3, 12.4, 14.1, 14.2, 14.3
  */
 
-import type { Config, IngestionParams, IngestionStats, LanguageStats, Chunk, RescanResult } from '../../shared/types/index.js';
+import type { Config, IngestionParams, IngestionStats, LanguageStats, Chunk, RescanResult, Language } from '../../shared/types/index.js';
 import { FileScannerService, type ScannedFile } from './file-scanner.service.js';
 import { TreeSitterParsingService } from '../parsing/tree-sitter-parsing.service.js';
+import { PlainTextParsingService } from '../parsing/plaintext-parsing.service.js';
+import { LanguageDetectionService } from '../parsing/language-detection.service.js';
 import type { EmbeddingService } from '../embedding/embedding.service.js';
 import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.client.js';
 import { createLogger, startTimer, logMemoryUsage } from '../../shared/logging/index.js';
@@ -47,7 +49,9 @@ export type ProgressCallback = (phase: string, current: number, total: number) =
  */
 export class IngestionService {
   private fileScanner: FileScannerService;
-  private parser: TreeSitterParsingService;
+  private astParser: TreeSitterParsingService;
+  private plainTextParser: PlainTextParsingService;
+  private languageDetection: LanguageDetectionService;
   private embeddingService: EmbeddingService;
   private lanceClient: LanceDBClientWrapper;
   private config: Config;
@@ -59,7 +63,9 @@ export class IngestionService {
     config: Config
   ) {
     this.fileScanner = new FileScannerService();
-    this.parser = new TreeSitterParsingService(config);
+    this.astParser = new TreeSitterParsingService(config);
+    this.plainTextParser = new PlainTextParsingService(config);
+    this.languageDetection = new LanguageDetectionService();
     this.embeddingService = embeddingService;
     this.lanceClient = lanceClient;
     this.config = config;
@@ -163,7 +169,7 @@ export class IngestionService {
             }
           }
 
-          let chunks = await this.parser.parseFile(file.path, file.language as any);
+          let chunks = await this.parseFileWithAppropriateParser(file.path, file.language as any);
           
           // If no chunks were extracted, create a file-level chunk with full content
           if (chunks.length === 0 && fullFileContent) {
@@ -179,9 +185,15 @@ export class IngestionService {
               endLine: lineCount,
               chunkType: 'file' as const,
               language: file.language as any,
-              filePath: file.path,
+              filePath: file.relativePath, // Use relative path
             }];
           }
+          
+          // Convert absolute paths to relative paths in all chunks
+          chunks = chunks.map(chunk => ({
+            ...chunk,
+            filePath: file.relativePath,
+          }));
           
           // Track successful parse only if chunks were produced
           if (chunks.length > 0) {
@@ -590,6 +602,29 @@ export class IngestionService {
   }
 
   /**
+   * Parse a file using the appropriate parser based on language type
+   * 
+   * @param filePath - Path to the file
+   * @param language - Detected language of the file
+   * @returns Array of parsed chunks
+   */
+  private async parseFileWithAppropriateParser(
+    filePath: string,
+    language: Language
+  ): Promise<Chunk[]> {
+    // Check if this language requires AST parsing
+    const requiresAst = this.languageDetection.requiresAstParsing(language);
+    
+    if (requiresAst) {
+      // Use Tree-sitter for code files
+      return await this.astParser.parseFile(filePath, language);
+    } else {
+      // Use plain text parser for non-code files
+      return await this.plainTextParser.parseFile(filePath, language);
+    }
+  }
+
+  /**
    * Rescan a codebase to detect and process only changed files
    * Performs incremental update by comparing file hashes
    * 
@@ -774,7 +809,7 @@ export class IngestionService {
               }
             }
             
-            let chunks = await this.parser.parseFile(file.path, file.language as any);
+            let chunks = await this.parseFileWithAppropriateParser(file.path, file.language as any);
             
             // If no chunks were extracted, create a file-level chunk with full content
             if (chunks.length === 0 && fullFileContent) {
@@ -790,9 +825,15 @@ export class IngestionService {
                 endLine: lineCount,
                 chunkType: 'file' as const,
                 language: file.language as any,
-                filePath: file.path,
+                filePath: file.relativePath, // Use relative path
               }];
             }
+            
+            // Convert absolute paths to relative paths in all chunks
+            chunks = chunks.map(chunk => ({
+              ...chunk,
+              filePath: file.relativePath,
+            }));
 
             const classification = classifyFile(file.relativePath);
             const chunksWithMetadata = chunks.map((chunk, index) => ({

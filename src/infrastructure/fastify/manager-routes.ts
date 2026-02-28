@@ -147,15 +147,16 @@ export async function registerManagerRoutes(
    * Search codebases
    */
   fastify.post('/search', async (request: FastifyRequest, reply: FastifyReply) => {
-    const { query, maxResults = 10, excludeTests, excludeLibraries } = request.body as { 
-      query: string; 
+    const { query, codebaseName, maxResults = 10, excludeTests, excludeLibraries } = request.body as { 
+      query: string;
+      codebaseName?: string;
       maxResults?: number;
       excludeTests?: string;
       excludeLibraries?: string;
     };
     
     try {
-      logger.info('POST /search', { query, maxResults, excludeTests, excludeLibraries });
+      logger.info('POST /search', { query, codebaseName, maxResults, excludeTests, excludeLibraries });
       
       if (!query || query.trim() === '') {
         (request as any).flash('message', 'Search query is required');
@@ -165,6 +166,7 @@ export async function registerManagerRoutes(
       
       const results = await searchService.search({
         query,
+        codebaseName: codebaseName && codebaseName.trim() !== '' ? codebaseName : undefined,
         maxResults: Number(maxResults),
         excludeTests: excludeTests === 'true',
         excludeLibraries: excludeLibraries === 'true',
@@ -177,6 +179,7 @@ export async function registerManagerRoutes(
         codebases,
         searchResults: results.results,
         searchQuery: query,
+        selectedCodebaseName: codebaseName || '',
         maxResults: Number(maxResults),
         excludeTests: excludeTests === 'true',
         excludeLibraries: excludeLibraries === 'true',

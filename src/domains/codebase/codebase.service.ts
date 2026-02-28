@@ -14,7 +14,7 @@ import type {
 } from '../../shared/types/index.js';
 import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.client.js';
 import { createLogger } from '../../shared/logging/index.js';
-import { stat, readFile } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const rootLogger = createLogger('info');
@@ -564,8 +564,29 @@ export class CodebaseService {
         throw new CodebaseError(`Codebase '${codebaseName}' not found`);
       }
 
+      // Normalize file path: if it's an absolute path, try to get the codebase path
+      // and convert to relative path for consistent querying
+      let normalizedFilePath = filePath;
+      if (path.isAbsolute(filePath)) {
+        try {
+          const codebasePath = await this.getCodebasePath(codebaseName);
+          normalizedFilePath = path.relative(codebasePath, filePath);
+          logger.debug('Normalized absolute path to relative', {
+            original: filePath,
+            normalized: normalizedFilePath,
+            codebasePath,
+          });
+        } catch (error) {
+          // If we can't get codebase path, try with original path
+          logger.warn('Could not normalize absolute path, using original', {
+            filePath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       // Escape single quotes in filePath for SQL filter
-      const escapedFilePath = filePath.replace(/'/g, "''");
+      const escapedFilePath = normalizedFilePath.replace(/'/g, "''");
 
       // Query for the specific chunk
       const rows = await table
@@ -578,7 +599,7 @@ export class CodebaseService {
 
       if (rows.length === 0) {
         throw new CodebaseError(
-          `Chunk not found: ${filePath}:${startLine}-${endLine} in codebase '${codebaseName}'`
+          `Chunk not found: ${normalizedFilePath}:${startLine}-${endLine} in codebase '${codebaseName}'`
         );
       }
 
@@ -586,13 +607,13 @@ export class CodebaseService {
 
       logger.debug('Chunk content retrieved successfully', {
         codebaseName,
-        filePath,
+        filePath: normalizedFilePath,
         contentLength: row.content?.length || 0,
       });
 
       return {
         codebaseName,
-        filePath: row.filePath || filePath,
+        filePath: row.filePath || normalizedFilePath,
         startLine: row.startLine || startLine,
         endLine: row.endLine || endLine,
         language: row.language || 'unknown',
@@ -663,34 +684,21 @@ export class CodebaseService {
           );
         }
 
-        // Try to get full file content from the first chunk (where it's stored)
-        let content: string;
+        // Get full file content from the first chunk (where it's stored)
         const firstChunk = rows.find(row => row.fullFileContent);
         
-        if (firstChunk && firstChunk.fullFileContent) {
-          content = firstChunk.fullFileContent;
-          logger.debug('Retrieved full file content from database', {
-            codebaseName,
-            filePath: normalizedFilePath,
-            contentLength: content.length,
-          });
-        } else {
-          // Fallback: read from disk if fullFileContent not available
-          logger.warn('Full file content not in database, falling back to disk read', {
-            codebaseName,
-            filePath: normalizedFilePath,
-          });
-          
-          const absoluteFilePath = path.join(codebasePath, normalizedFilePath);
-          try {
-            content = await readFile(absoluteFilePath, 'utf-8');
-          } catch (error) {
-            throw new CodebaseError(
-              `File content not in database and source file not found on disk: ${absoluteFilePath}. Re-ingest the codebase with storeFullFiles enabled.`,
-              error
-            );
-          }
+        if (!firstChunk || !firstChunk.fullFileContent) {
+          throw new CodebaseError(
+            `File content not available in database for ${normalizedFilePath}. Re-ingest the codebase with storeFullFiles enabled.`
+          );
         }
+        
+        const content = firstChunk.fullFileContent;
+        logger.debug('Retrieved full file content from database', {
+          codebaseName,
+          filePath: normalizedFilePath,
+          contentLength: content.length,
+        });
 
         // Get metadata from chunks
         const language = rows[0].language || 'unknown';
@@ -703,7 +711,6 @@ export class CodebaseService {
           chunkCount: rows.length,
           contentLength: content.length,
           totalLines,
-          fromDatabase: !!firstChunk?.fullFileContent,
         });
 
         return {
