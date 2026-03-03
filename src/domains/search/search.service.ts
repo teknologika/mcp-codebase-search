@@ -163,6 +163,8 @@ export class SearchService {
       // Search all relevant tables
       const allResults: SearchResult[] = [];
       const maxResults = params.maxResults || this.config.search.defaultMaxResults;
+      // Fetch more results for boosting - we'll re-rank and limit after applying name boosts
+      const vectorSearchLimit = Math.max(maxResults * 10, 50);
 
       for (const tableName of tables) {
         const tableTimer = startTimer('searchTable', logger, { tableName });
@@ -170,8 +172,8 @@ export class SearchService {
           // Open table directly by name instead of using getOrCreateTable
           const table = await this.lanceClient.getConnection().openTable(tableName);
 
-          // Perform vector search
-          let query = table.search(queryEmbedding).limit(maxResults);
+          // Perform vector search with higher limit for re-ranking
+          let query = table.search(queryEmbedding).limit(vectorSearchLimit);
 
           // Add metadata filters if specified
           const filters: string[] = [];
@@ -210,6 +212,24 @@ export class SearchService {
               // Apply square root to compress the range and boost scores
               similarityScore = Math.sqrt(baseScore);
               // This gives: distance 0 → 1.00, distance 1.0 → 0.78, distance 1.5 → 0.69, distance 2.0 → 0.61
+            }
+            
+            // Apply filename and symbol name boosting
+            const originalScore = similarityScore;
+            similarityScore = this.applyNameBoost(
+              similarityScore,
+              params.query,
+              row.filePath || '',
+              row.content || ''
+            );
+            
+            if (similarityScore !== originalScore) {
+              logger.info('Applied name boost', {
+                filePath: row.filePath,
+                originalScore: originalScore.toFixed(4),
+                boostedScore: similarityScore.toFixed(4),
+                boost: (similarityScore - originalScore).toFixed(4)
+              });
             }
             
             const result: SearchResult = {
@@ -314,5 +334,84 @@ export class SearchService {
       size: this.cache.size,
       keys: Array.from(this.cache.keys()),
     };
+  }
+
+  /**
+   * Apply boosting to similarity score based on filename and symbol name matches
+   * Boosts scores when query terms match:
+   * - Filename (without extension)
+   * - Class names in content
+   * - Function/method names in content
+   */
+  private applyNameBoost(
+    baseScore: number,
+    query: string,
+    filePath: string,
+    content: string
+  ): number {
+    // Normalize query to lowercase and split into terms
+    const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+    
+    if (queryTerms.length === 0) {
+      return baseScore;
+    }
+
+    // Extract filename without extension
+    const filename = filePath.split('/').pop() || '';
+    const filenameWithoutExt = filename.replace(/\.[^.]+$/, '').toLowerCase();
+    
+    logger.info('Name boost check', {
+      query,
+      queryTerms,
+      filename,
+      filenameWithoutExt,
+      filePath
+    });
+    
+    // Extract potential symbol names from content (class/function/method names)
+    // Look for patterns like: class ClassName, function functionName, methodName(
+    const symbolMatches = content.match(/(?:class|function|interface|enum)\s+(\w+)|(\w+)\s*\(/g) || [];
+    const symbols = symbolMatches
+      .map(m => {
+        const match = m.match(/(?:class|function|interface|enum)\s+(\w+)|(\w+)\s*\(/);
+        return match ? (match[1] || match[2] || '').toLowerCase() : '';
+      })
+      .filter(s => s.length > 0);
+
+    let boost = 0;
+
+    // Check each query term for matches
+    for (const term of queryTerms) {
+      // Exact filename match (highest boost)
+      if (filenameWithoutExt === term) {
+        boost += 0.25;
+        continue;
+      }
+      
+      // Partial filename match
+      if (filenameWithoutExt.includes(term) || term.includes(filenameWithoutExt)) {
+        boost += 0.15;
+      }
+      
+      // Exact symbol name match
+      if (symbols.some(s => s === term)) {
+        boost += 0.20;
+        continue;
+      }
+      
+      // Partial symbol name match
+      if (symbols.some(s => s.includes(term) || term.includes(s))) {
+        boost += 0.10;
+      }
+    }
+
+    // Cap the boost to avoid over-boosting
+    boost = Math.min(boost, 0.35);
+    
+    // Apply boost: new_score = base_score + (boost * (1 - base_score))
+    // This ensures scores stay in [0, 1] range and don't exceed 1.0
+    const boostedScore = baseScore + (boost * (1 - baseScore));
+    
+    return Math.min(boostedScore, 1.0);
   }
 }

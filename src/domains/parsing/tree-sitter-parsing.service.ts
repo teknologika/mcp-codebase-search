@@ -113,8 +113,12 @@ export class TreeSitterParsingService {
         throw new Error(`No parser available for language: ${language}`);
       }
 
-      // Parse the file
-      const tree = parser.parse(content);
+      // Parse the file with appropriate buffer size
+      // Default buffer is 32KB which fails on larger files
+      // Set buffer to file size + 10% headroom, capped at 10MB for safety
+      const bufferSize = Math.min(Math.ceil(content.length * 1.1), 10 * 1024 * 1024);
+      
+      const tree = parser.parse(content, undefined, { bufferSize });
       
       // Extract chunks from AST
       const chunks = this.extractChunks(tree.rootNode, content, filePath, language);
@@ -126,7 +130,9 @@ export class TreeSitterParsingService {
         'Extracted chunks from file',
         { 
           filePath, 
-          language, 
+          language,
+          fileSize: content.length,
+          bufferSize,
           rawChunkCount: chunks.length,
           processedChunkCount: processedChunks.length 
         }
