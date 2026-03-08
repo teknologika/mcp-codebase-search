@@ -1,6 +1,6 @@
 {
   "name": "@teknologika/mcp-codebase-search",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Local-first semantic search system for codebases using MCP protocol with Tree-sitter parsing and ChromaDB vector storage",
   "type": "module",
   "engines": {
@@ -73,6 +73,7 @@
     "ajv-formats": "^3.0.1",
     "commander": "^11.1.0",
     "fastify": "^5.7.4",
+    "g": "^2.0.1",
     "handlebars": "^4.7.8",
     "ignore": "^7.0.5",
     "pino": "^8.17.0",
@@ -87,13 +88,13 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "@typescript-eslint/eslint-plugin": "^6.18.0",
-    "@typescript-eslint/parser": "^6.18.0",
-    "@vitest/coverage-v8": "^1.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^8.56.0",
     "fast-check": "^3.15.0",
     "pino-pretty": "^11.0.0",
     "typescript": "^5.3.3",
-    "vitest": "^1.1.0"
+    "vitest": "^4.0.18"
   }
 }

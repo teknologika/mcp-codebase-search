@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-03-08
+
+### Fixed
+- **Rescan crash with no changes**: Fixed "Illegal instruction: 4" segmentation fault when rescanning codebases with no file changes
+  - Added explicit memory cleanup after loading chunk data from database
+  - Clear rows array immediately after extracting file hash map
+  - Clear file maps before method completion to help garbage collection
+  - Prevents LanceDB native code from encountering memory corruption during cleanup
+  - Rescan operations now complete successfully even when no files have changed
+
+### Technical Details
+- Issue occurred when `table.query().toArray()` loaded thousands of chunks into memory
+- Memory stayed allocated throughout rescan operation when no changes were detected
+- LanceDB's Rust/C++ native code crashed during cleanup of large result sets
+- Fix reduces memory pressure and helps prevent native code memory corruption
+
 ## [0.1.8] - 2026-02-18
 
 ### Fixed
