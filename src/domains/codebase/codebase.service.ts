@@ -224,57 +224,102 @@ export class CodebaseService {
   /**
    * Rename a codebase and propagate to all chunk metadata
    */
-  async renameCodebase(oldName: string, newName: string): Promise<void> {
-    try {
-      logger.debug('Renaming codebase', { oldName, newName });
+  /**
+     * Rename a codebase and propagate to all chunk metadata
+     */
+    async renameCodebase(oldName: string, newName: string): Promise<void> {
+      try {
+        logger.debug('Renaming codebase', { oldName, newName });
 
-      // Get the old table
-      const oldTable = await this.lanceClient.getOrCreateTable(oldName);
-      if (!oldTable) {
-        throw new CodebaseError(`Codebase '${oldName}' not found`);
+        // Get the old table
+        const oldTable = await this.lanceClient.getOrCreateTable(oldName);
+        if (!oldTable) {
+          throw new CodebaseError(`Codebase '${oldName}' not found`);
+        }
+
+        // Get all rows from old table
+        const rows = await oldTable.query().toArray();
+
+        if (rows.length === 0) {
+          logger.warn('No chunks found in codebase to rename', { oldName });
+        }
+
+        // Validate and sanitize vector data
+        const sanitizedRows = rows
+          .map((row: any) => {
+            // Check if vector field exists and is valid
+            if (row.vector && Array.isArray(row.vector) && row.vector.length > 0) {
+              // Validate that all vector elements are numbers
+              const isValidVector = row.vector.every((val: any) => 
+                typeof val === 'number' && !isNaN(val) && isFinite(val)
+              );
+
+              if (isValidVector) {
+                return row;
+              } else {
+                logger.warn('Invalid vector data found, skipping chunk', {
+                  filePath: row.filePath,
+                  startLine: row.startLine,
+                  vectorLength: row.vector?.length,
+                  vectorSample: row.vector?.slice(0, 3)
+                });
+                return null;
+              }
+            } else {
+              logger.warn('Missing or invalid vector field, skipping chunk', {
+                filePath: row.filePath,
+                startLine: row.startLine,
+                hasVector: !!row.vector,
+                vectorType: typeof row.vector
+              });
+              return null;
+            }
+          })
+          .filter((row: any) => row !== null);
+
+        logger.info('Vector validation completed', {
+          originalRows: rows.length,
+          validRows: sanitizedRows.length,
+          skippedRows: rows.length - sanitizedRows.length
+        });
+
+        // Update codebaseName in all valid rows
+        const updatedRows = sanitizedRows.map((row: any) => ({
+          ...row,
+          _codebaseName: newName,
+          _renamedFrom: oldName,
+          _renamedAt: new Date().toISOString(),
+        }));
+
+        // Create new table with updated data
+        if (updatedRows.length > 0) {
+          await this.lanceClient.createTableWithData(newName, updatedRows);
+        } else {
+          logger.warn('No valid chunks to rename after vector validation', { oldName });
+        }
+
+        // Delete old table
+        await this.lanceClient.deleteTable(oldName);
+
+        logger.debug('Codebase renamed successfully', {
+          oldName,
+          newName,
+          chunksUpdated: updatedRows.length,
+          chunksSkipped: rows.length - updatedRows.length,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(
+          'Failed to rename codebase',
+          error instanceof Error ? error : new Error(errorMessage),
+          { oldName, newName }
+        );
+        throw new CodebaseError(
+          `Failed to rename codebase from '${oldName}' to '${newName}': ${errorMessage}`,
+          error
+        );
       }
-      
-      // Get all rows from old table
-      const rows = await oldTable.query().toArray();
-
-      if (rows.length === 0) {
-        logger.warn('No chunks found in codebase to rename', { oldName });
-      }
-
-      // Update codebaseName in all rows
-      const updatedRows = rows.map((row: any) => ({
-        ...row,
-        _codebaseName: newName,
-        _renamedFrom: oldName,
-        _renamedAt: new Date().toISOString(),
-      }));
-
-      // Create new table with updated data
-      if (updatedRows.length > 0) {
-        await this.lanceClient.createTableWithData(newName, updatedRows);
-      }
-
-      // Delete old table
-      await this.lanceClient.deleteTable(oldName);
-
-      logger.debug('Codebase renamed successfully', {
-        oldName,
-        newName,
-        chunksUpdated: rows.length,
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(
-        'Failed to rename codebase',
-        error instanceof Error ? error : new Error(errorMessage),
-        { oldName, newName }
-      );
-      throw new CodebaseError(
-        `Failed to rename codebase from '${oldName}' to '${newName}': ${errorMessage}`,
-        error
-      );
     }
-  }
 
   /**
    * Delete a codebase and all its chunks

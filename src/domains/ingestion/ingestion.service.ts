@@ -882,6 +882,10 @@ export class IngestionService {
         }
       }
 
+      // Update lastIngestion timestamp for all chunks to reflect the rescan time
+      const rescanTimestamp = new Date().toISOString();
+      await this.updateLastIngestionTimestamp(codebaseName, rescanTimestamp);
+
       const durationMs = overallTimer.end();
 
       const result: RescanResult = {
@@ -923,4 +927,70 @@ export class IngestionService {
       );
     }
   }
+  /**
+   * Update the lastIngestion timestamp for all chunks in a codebase
+   * This ensures the codebase metadata reflects when it was last scanned
+   */
+  /**
+     * Update the lastIngestion timestamp for all chunks in a codebase
+     * This ensures the codebase metadata reflects when it was last scanned
+     */
+    private async updateLastIngestionTimestamp(
+      codebaseName: string,
+      timestamp: string
+    ): Promise<void> {
+      try {
+        const table = await this.lanceClient.getOrCreateTable(codebaseName);
+        if (!table) {
+          this.logger.warn('Table not found for lastIngestion update', { codebaseName });
+          return;
+        }
+
+        // Get all rows
+        const rows = await table.query().toArray();
+
+        if (rows.length === 0) {
+          this.logger.debug('No rows to update for lastIngestion', { codebaseName });
+          return;
+        }
+
+        // Update _lastIngestion timestamp in all rows
+        const updatedRows = rows.map((row: any) => ({
+          ...row,
+          _lastIngestion: timestamp,
+        }));
+
+        // Use a safer approach: add updated rows then delete old ones
+        // First, add all updated rows
+        await table.add(updatedRows);
+
+        // Then delete the old rows by their IDs
+        // We need to delete in batches to avoid issues with large datasets
+        const batchSize = 1000;
+        for (let i = 0; i < rows.length; i += batchSize) {
+          const batch = rows.slice(i, i + batchSize);
+          const idsToDelete = batch.map((row: any) => row.id).filter(id => id);
+
+          if (idsToDelete.length > 0) {
+            // Delete by ID filter
+            const idFilter = idsToDelete.map(id => `\`id\` = '${id.replace(/'/g, "''")}'`).join(' OR ');
+            await table.delete(idFilter);
+          }
+        }
+
+        this.logger.debug('Updated lastIngestion timestamp for all chunks', {
+          codebaseName,
+          chunkCount: rows.length,
+          timestamp,
+        });
+      } catch (error) {
+        this.logger.error(
+          'Failed to update lastIngestion timestamp',
+          error instanceof Error ? error : new Error(String(error)),
+          { codebaseName, timestamp }
+        );
+        // Don't throw - this is not critical for rescan functionality
+      }
+    }
+
 }
