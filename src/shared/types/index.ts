@@ -11,6 +11,11 @@ export type Language =
   | "javascript" 
   | "typescript" 
   | "python"
+  | "svelte"
+  | "vue"
+  | "html"
+  | "css"
+  | "scss"
   | "json"
   | "markdown"
   | "yaml"
@@ -89,6 +94,11 @@ export interface CodebaseMetadata {
   fileCount: number;
   lastIngestion: string; // ISO 8601 timestamp
   languages: string[];
+  createdAt?: string; // ISO 8601 timestamp - when first ingested
+  lastModified?: string; // ISO 8601 timestamp - last file modification in codebase
+  tableName?: string; // LanceDB table name
+  status?: 'active' | 'corrupted' | 'empty';
+  lastError?: string; // Last error message if any
 }
 
 /**

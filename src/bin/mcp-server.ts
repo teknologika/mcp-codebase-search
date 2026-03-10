@@ -82,7 +82,7 @@ async function main() {
     // Try to initialize, but don't fail if LanceDB isn't available yet
     try {
       await lanceClient.initialize();
-    } catch (error) {
+    } catch (_error) {
       // Don't exit - let the server start and LanceDB will initialize on first use
     }
 

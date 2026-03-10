@@ -302,6 +302,17 @@ export class IngestionService {
 
       storeTimer.end();
 
+      // Phase 6: Write metadata
+      this.logger.info('Phase 5: Writing metadata');
+      await this.writeMetadata(
+        codebaseName,
+        codebasePath,
+        allChunks.length,
+        supportedFiles.length,
+        languageStats,
+        ingestionTimestamp
+      );
+
       // Calculate statistics
       const durationMs = overallTimer.end();
       const chunkDiff = allChunks.length - previousChunkCount;
@@ -889,6 +900,46 @@ export class IngestionService {
       const rescanTimestamp = new Date().toISOString();
       await this.updateLastIngestionTimestamp(codebaseName, rescanTimestamp);
 
+      // Update metadata after rescan
+      this.logger.info('Updating metadata after rescan');
+      const rescanTable = await this.lanceClient.getOrCreateTable(codebaseName);
+      if (rescanTable) {
+        const rows = await rescanTable.query().toArray();
+        const languageMap = new Map<string, { fileCount: Set<string>; chunkCount: number }>();
+        const fileSet = new Set<string>();
+
+        for (const row of rows) {
+          const language = row.language || 'unknown';
+          const filePath = row.filePath || '';
+          
+          fileSet.add(filePath);
+
+          if (!languageMap.has(language)) {
+            languageMap.set(language, { fileCount: new Set(), chunkCount: 0 });
+          }
+          const langStats = languageMap.get(language)!;
+          langStats.fileCount.add(filePath);
+          langStats.chunkCount++;
+        }
+
+        const languageStats = new Map<string, { fileCount: number; chunkCount: number }>();
+        for (const [language, stats] of languageMap.entries()) {
+          languageStats.set(language, {
+            fileCount: stats.fileCount.size,
+            chunkCount: stats.chunkCount,
+          });
+        }
+
+        await this.writeMetadata(
+          codebaseName,
+          codebasePath,
+          rows.length,
+          fileSet.size,
+          languageStats,
+          rescanTimestamp
+        );
+      }
+
       // Clear maps to free memory before completing
       storedFileMap.clear();
       currentFileMap.clear();
@@ -961,5 +1012,91 @@ export class IngestionService {
           timestamp,
         });
       }
+      /**
+       * Write or update metadata for a codebase after successful ingestion
+       */
+      private async writeMetadata(
+        codebaseName: string,
+        codebasePath: string,
+        chunkCount: number,
+        fileCount: number,
+        languageStats: Map<string, { fileCount: number; chunkCount: number }>,
+        ingestionTimestamp: string
+      ): Promise<void> {
+        try {
+          // Get existing metadata to preserve createdAt
+          const existingMetadata = await this.lanceClient.getMetadata(codebaseName);
+
+          // Calculate total size from all chunks
+          const metadataTable = await this.lanceClient.getOrCreateTable(codebaseName);
+          let sizeBytes = 0;
+          const chunkTypeMap = new Map<string, number>();
+
+          if (metadataTable) {
+            const rows = await metadataTable.query().toArray();
+            for (const row of rows) {
+              sizeBytes += (row.content || '').length;
+              const chunkType = row.chunkType || row.chunktype || 'unknown';
+              chunkTypeMap.set(chunkType, (chunkTypeMap.get(chunkType) || 0) + 1);
+            }
+          }
+
+          // Calculate last modified time from filesystem
+          const { stat } = await import('fs/promises');
+          let lastModified = ingestionTimestamp;
+
+          try {
+            // Get the most recent file modification time
+            const stats = await stat(codebasePath);
+            lastModified = stats.mtime.toISOString();
+          } catch (_error) {
+            // Use ingestion timestamp if we can't read filesystem
+            this.logger.warn('Could not read filesystem mtime, using ingestion timestamp', {
+              codebaseName,
+              codebasePath,
+            });
+          }
+
+          // Prepare metadata
+          const metadata = {
+            name: codebaseName,
+            path: codebasePath,
+            createdAt: existingMetadata?.createdAt || ingestionTimestamp,
+            lastIngested: ingestionTimestamp,
+            lastModified,
+            chunkCount,
+            fileCount,
+            sizeBytes,
+            languages: Array.from(languageStats.entries()).map(([language, stats]) => ({
+              language,
+              fileCount: stats.fileCount,
+              chunkCount: stats.chunkCount,
+            })),
+            chunkTypes: Array.from(chunkTypeMap.entries()).map(([type, count]) => ({
+              type,
+              count,
+            })),
+            schemaVersion: LanceDBClientWrapper.getSchemaVersion(),
+            tableName: LanceDBClientWrapper.getTableName(codebaseName),
+            status: 'active' as const,
+          };
+
+          await this.lanceClient.setMetadata(metadata);
+
+          this.logger.debug('Metadata written successfully', {
+            codebaseName,
+            chunkCount,
+            fileCount,
+          });
+        } catch (error) {
+          // Log error but don't fail ingestion
+          this.logger.error(
+            'Failed to write metadata',
+            error instanceof Error ? error : new Error(String(error)),
+            { codebaseName }
+          );
+        }
+      }
+
 
 }

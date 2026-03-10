@@ -70,7 +70,7 @@ async function shutdownExistingServer(host: string, port: number): Promise<boole
       return true;
     }
     return false;
-  } catch (error) {
+  } catch (_error) {
     // Server might not have the shutdown endpoint or is not responding
     return false;
   }
@@ -123,9 +123,9 @@ async function openBrowser(url: string): Promise<void> {
 
   try {
     await execAsync(command);
-  } catch (error: unknown) {
+  } catch (_error: unknown) {
     throw new Error(
-      `Failed to open browser: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to open browser: ${_error instanceof Error ? _error.message : String(_error)}`
     );
   }
 }

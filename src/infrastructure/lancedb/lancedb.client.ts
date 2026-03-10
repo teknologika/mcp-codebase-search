@@ -230,7 +230,7 @@ export class LanceDBClientWrapper {
 
       const tableNames = await this.connection!.tableNames();
       return tableNames.includes(tableName);
-    } catch (error) {
+    } catch (_error) {
       this.logger.debug('Table check failed', {
         codebaseName,
         tableName,
@@ -361,4 +361,215 @@ export class LanceDBClientWrapper {
       }
     }
   }
+  /**
+   * Get or create the metadata table (lazy initialization)
+   */
+  private async getOrCreateMetadataTable(): Promise<Table> {
+    if (this.metadataTable) {
+      return this.metadataTable;
+    }
+
+    await this.ensureInitialized();
+
+    try {
+      const tableNames = await this.connection!.tableNames();
+
+      if (tableNames.includes(LanceDBClientWrapper.METADATA_TABLE_NAME)) {
+        this.metadataTable = await this.connection!.openTable(LanceDBClientWrapper.METADATA_TABLE_NAME);
+        this.logger.debug('Opened existing metadata table');
+      } else {
+        // Create metadata table with initial empty data
+        const initialData = [{
+          name: '_init',
+          path: '',
+          createdAt: new Date().toISOString(),
+          lastIngested: new Date().toISOString(),
+          lastModified: new Date().toISOString(),
+          chunkCount: 0,
+          fileCount: 0,
+          sizeBytes: 0,
+          languages: JSON.stringify([]),
+          chunkTypes: JSON.stringify([]),
+          schemaVersion: SCHEMA_VERSION,
+          tableName: '_init',
+          status: 'active',
+        }];
+
+        this.metadataTable = await this.connection!.createTable(
+          LanceDBClientWrapper.METADATA_TABLE_NAME,
+          initialData
+        );
+
+        // Delete the initialization row
+        await this.metadataTable.delete(`name = '_init'`);
+
+        this.logger.info('Created new metadata table');
+      }
+
+      return this.metadataTable;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Failed to get or create metadata table',
+        error instanceof Error ? error : new Error(errorMessage)
+      );
+      throw new LanceDBError(
+        `Failed to get or create metadata table: ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Get metadata for a specific codebase
+   */
+  async getMetadata(codebaseName: string): Promise<any | null> {
+    try {
+      const table = await this.getOrCreateMetadataTable();
+      const escapedName = codebaseName.replace(/'/g, "''");
+
+      const rows = await table
+        .query()
+        .where(`name = '${escapedName}'`)
+        .limit(1)
+        .toArray();
+
+      if (rows.length === 0) {
+        return null;
+      }
+
+      const row = rows[0];
+
+      // Parse JSON fields
+      return {
+        ...row,
+        languages: JSON.parse(row.languages || '[]'),
+        chunkTypes: JSON.parse(row.chunkTypes || '[]'),
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Failed to get metadata',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName }
+      );
+      throw new LanceDBError(
+        `Failed to get metadata for codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Set or update metadata for a codebase
+   */
+  async setMetadata(metadata: any): Promise<void> {
+    try {
+      const table = await this.getOrCreateMetadataTable();
+
+      // Check if metadata already exists
+      const existing = await this.getMetadata(metadata.name);
+
+      // Prepare row data with JSON serialization
+      const row = {
+        name: metadata.name,
+        path: metadata.path,
+        createdAt: metadata.createdAt || new Date().toISOString(),
+        lastIngested: metadata.lastIngested,
+        lastModified: metadata.lastModified || new Date().toISOString(),
+        chunkCount: metadata.chunkCount,
+        fileCount: metadata.fileCount,
+        sizeBytes: metadata.sizeBytes,
+        languages: JSON.stringify(metadata.languages || []),
+        chunkTypes: JSON.stringify(metadata.chunkTypes || []),
+        schemaVersion: metadata.schemaVersion || SCHEMA_VERSION,
+        tableName: metadata.tableName || LanceDBClientWrapper.getTableName(metadata.name),
+        status: metadata.status || 'active',
+        lastError: metadata.lastError || null,
+      };
+
+      if (existing) {
+        // Update existing metadata
+        const escapedName = metadata.name.replace(/'/g, "''");
+        await table.delete(`name = '${escapedName}'`);
+        await table.add([row]);
+
+        this.logger.debug('Updated metadata', { codebaseName: metadata.name });
+      } else {
+        // Insert new metadata
+        await table.add([row]);
+
+        this.logger.debug('Inserted new metadata', { codebaseName: metadata.name });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Failed to set metadata',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName: metadata.name }
+      );
+      throw new LanceDBError(
+        `Failed to set metadata for codebase '${metadata.name}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Delete metadata for a codebase
+   */
+  async deleteMetadata(codebaseName: string): Promise<void> {
+    try {
+      const table = await this.getOrCreateMetadataTable();
+      const escapedName = codebaseName.replace(/'/g, "''");
+
+      await table.delete(`name = '${escapedName}'`);
+
+      this.logger.debug('Deleted metadata', { codebaseName });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Failed to delete metadata',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName }
+      );
+      throw new LanceDBError(
+        `Failed to delete metadata for codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * List all codebase metadata
+   */
+  async listAllMetadata(): Promise<any[]> {
+    try {
+      const table = await this.getOrCreateMetadataTable();
+      const rows = await table.query().toArray();
+
+      // Parse JSON fields for each row
+      return rows.map(row => ({
+        ...row,
+        languages: JSON.parse(row.languages || '[]'),
+        chunkTypes: JSON.parse(row.chunkTypes || '[]'),
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        'Failed to list all metadata',
+        error instanceof Error ? error : new Error(errorMessage)
+      );
+      throw new LanceDBError(
+        `Failed to list all metadata: ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+
+    // Metadata table name constant
+    private static readonly METADATA_TABLE_NAME = '_codebase_metadata';
+    private metadataTable: Table | null = null;
+
 }

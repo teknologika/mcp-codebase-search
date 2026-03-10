@@ -44,82 +44,134 @@ export class CodebaseService {
   /**
    * List all codebases with metadata
    */
-  async listCodebases(): Promise<CodebaseMetadata[]> {
-    try {
-      logger.debug('Listing all codebases');
+  /**
+     * List all codebases with metadata
+     * Reads from metadata table with fallback to chunk tables for backward compatibility
+     */
+    async listCodebases(): Promise<CodebaseMetadata[]> {
+      try {
+        logger.debug('Listing all codebases');
 
-      const tables = await this.lanceClient.listTables();
-      const codebases: CodebaseMetadata[]  = [];
-
-      for (const table of tables) {
-        const metadata = table.metadata;
-        
-        // Only include tables that are codebase tables
-        if (!metadata?.codebaseName) {
-          continue;
-        }
-
-        const codebaseName = metadata.codebaseName as string;
-        
-        // Open table directly by name
-        const lanceTable = await this.lanceClient.getConnection().openTable(table.name);
-        const count = await lanceTable.countRows();
-        
-        // Extract metadata from first row if available
-        let path = '';
-        let fileCount = 0;
-        let lastIngestion = '';
-        let languages: string[] = [];
-
+        // Try to read from metadata table first
         try {
-          const sample = await lanceTable.query().limit(1).toArray();
-          if (sample.length > 0) {
-            const firstRow = sample[0];
-            path = firstRow._path || '';
-            lastIngestion = firstRow._lastIngestion || firstRow._createdAt || '';
-            
-            // Get unique languages and file count from all rows
-            const allRows = await lanceTable.query().select(['language', 'filePath']).toArray();
-            const uniqueFiles = new Set<string>();
-            const uniqueLanguages = new Set<string>();
-            
-            for (const row of allRows) {
-              if (row.filePath) uniqueFiles.add(row.filePath);
-              if (row.language) uniqueLanguages.add(row.language);
-            }
-            
-            fileCount = uniqueFiles.size;
-            languages = Array.from(uniqueLanguages);
+          const metadataList = await this.lanceClient.listAllMetadata();
+
+          if (metadataList.length > 0) {
+            logger.debug('Retrieved codebases from metadata table', {
+              count: metadataList.length,
+            });
+
+            return metadataList.map(meta => ({
+              name: meta.name,
+              path: meta.path,
+              chunkCount: meta.chunkCount,
+              fileCount: meta.fileCount,
+              lastIngestion: meta.lastIngested,
+              languages: meta.languages.map((l: any) => l.language || l),
+              createdAt: meta.createdAt,
+              lastModified: meta.lastModified,
+              tableName: meta.tableName,
+              status: meta.status,
+              lastError: meta.lastError,
+            }));
           }
         } catch (error) {
-          // Silently ignore metadata errors - table may be corrupted or incompatible
-          // This is not critical for listing codebases
+          logger.warn('Failed to read from metadata table, falling back to chunk tables', {
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
 
-        codebases.push({
-          name: codebaseName,
-          path,
-          chunkCount: count,
-          fileCount,
-          lastIngestion,
-          languages,
-        });
-      }
+        // Fallback: Read from chunk tables (backward compatibility)
+        const tables = await this.lanceClient.listTables();
+        const codebases: CodebaseMetadata[] = [];
 
-      logger.debug('Codebases listed successfully', { count: codebases.length });
-      return codebases;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(
-        'Failed to list codebases',
-        error instanceof Error ? error : new Error(errorMessage)
-      );
-      throw new CodebaseError(
-        `Failed to list codebases: ${errorMessage}`,
-        error
-      );
+        for (const table of tables) {
+          const metadata = table.metadata;
+
+          // Only include tables that are codebase tables
+          if (!metadata?.codebaseName) {
+            continue;
+          }
+
+          const codebaseName = metadata.codebaseName as string;
+
+          try {
+            // Open table directly by name
+            const lanceTable = await this.lanceClient.getConnection().openTable(table.name);
+            const count = await lanceTable.countRows();
+
+            // Extract metadata from first row if available
+            let path = '';
+            let fileCount = 0;
+            let lastIngestion = '';
+            let languages: string[] = [];
+
+            try {
+              const sample = await lanceTable.query().limit(1).toArray();
+              if (sample.length > 0) {
+                const firstRow = sample[0];
+                path = firstRow._path || '';
+                lastIngestion = firstRow._lastIngestion || firstRow._createdAt || '';
+
+                // Get unique languages and file count from all rows
+                const allRows = await lanceTable.query().select(['language', 'filePath']).toArray();
+                const uniqueFiles = new Set<string>();
+                const uniqueLanguages = new Set<string>();
+
+                for (const row of allRows) {
+                  if (row.filePath) uniqueFiles.add(row.filePath);
+                  if (row.language) uniqueLanguages.add(row.language);
+                }
+
+                fileCount = uniqueFiles.size;
+                languages = Array.from(uniqueLanguages);
+              }
+            } catch (_error) {
+              // Silently ignore metadata errors - table may be corrupted or incompatible
+              // This is not critical for listing codebases
+            }
+
+            codebases.push({
+              name: codebaseName,
+              path,
+              chunkCount: count,
+              fileCount,
+              lastIngestion,
+              languages,
+              status: count === 0 ? 'empty' : 'active',
+            });
+          } catch (error) {
+            // Mark as corrupted if we can't read the table
+            codebases.push({
+              name: codebaseName,
+              path: '',
+              chunkCount: 0,
+              fileCount: 0,
+              lastIngestion: '',
+              languages: [],
+              status: 'corrupted',
+              lastError: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        logger.debug('Codebases listed successfully (from chunk tables)', {
+          count: codebases.length,
+        });
+        return codebases;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(
+          'Failed to list codebases',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        throw new CodebaseError(
+          `Failed to list codebases: ${errorMessage}`,
+          error
+        );
+      }
     }
-  }
+
 
   /**
    * Get detailed statistics for a codebase
@@ -324,26 +376,42 @@ export class CodebaseService {
   /**
    * Delete a codebase and all its chunks
    */
-  async deleteCodebase(name: string): Promise<void> {
-    try {
-      logger.debug('Deleting codebase', { codebaseName: name });
+  /**
+     * Delete a codebase and all its chunks
+     */
+    async deleteCodebase(name: string): Promise<void> {
+      try {
+        logger.debug('Deleting codebase', { codebaseName: name });
 
-      await this.lanceClient.deleteTable(name);
+        // Delete the chunk table
+        await this.lanceClient.deleteTable(name);
 
-      logger.debug('Codebase deleted successfully', { codebaseName: name });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(
-        'Failed to delete codebase',
-        error instanceof Error ? error : new Error(errorMessage),
-        { codebaseName: name }
-      );
-      throw new CodebaseError(
-        `Failed to delete codebase '${name}': ${errorMessage}`,
-        error
-      );
+        // Delete metadata entry
+        try {
+          await this.lanceClient.deleteMetadata(name);
+        } catch (error) {
+          // Log but don't fail if metadata deletion fails
+          logger.warn('Failed to delete metadata, continuing', {
+            codebaseName: name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+
+        logger.debug('Codebase deleted successfully', { codebaseName: name });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(
+          'Failed to delete codebase',
+          error instanceof Error ? error : new Error(errorMessage),
+          { codebaseName: name }
+        );
+        throw new CodebaseError(
+          `Failed to delete codebase '${name}': ${errorMessage}`,
+          error
+        );
+      }
     }
-  }
+
 
   /**
    * Delete chunks from a specific ingestion timestamp

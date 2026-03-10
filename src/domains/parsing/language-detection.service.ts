@@ -21,6 +21,18 @@ export const LANGUAGE_SUPPORT: Record<string, Language> = {
   '.tsx': 'typescript',
   '.py': 'python',
   
+  // Web framework files (plain text for now)
+  '.svelte': 'svelte',
+  '.vue': 'vue',
+  '.html': 'html',
+  '.htm': 'html',
+  
+  // Styling files (plain text)
+  '.css': 'css',
+  '.scss': 'scss',
+  '.sass': 'scss',
+  '.less': 'css',
+  
   // Configuration and data files (plain text)
   '.json': 'json',
   '.jsonc': 'json',

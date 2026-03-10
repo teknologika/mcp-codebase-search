@@ -153,7 +153,7 @@ export class FileScannerService {
 
     try {
       entries = await fs.readdir(currentPath, { withFileTypes: true });
-    } catch (error) {
+    } catch (_error) {
       logger.warn('Failed to read directory, skipping');
       return;
     }
@@ -207,7 +207,7 @@ export class FileScannerService {
             );
             continue;
           }
-        } catch (error) {
+        } catch (_error) {
           logger.warn('Failed to stat file');
           continue;
         }
@@ -259,7 +259,7 @@ export class FileScannerService {
         ig.add(content);
         hasPatterns = true;
         logger.debug('Loaded .gitignore', { path: gitignorePath });
-      } catch (error) {
+      } catch (_error) {
         // .gitignore not found at this level - continue up
       }
 

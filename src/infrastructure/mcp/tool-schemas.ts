@@ -95,7 +95,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
       language: {
         type: 'string',
         description: 'Optional filter to search only for code in a specific language',
-        enum: ['csharp', 'java', 'javascript', 'typescript', 'python'],
+        enum: ['csharp', 'java', 'javascript', 'typescript', 'python', 'svelte', 'vue', 'html', 'css', 'scss'],
       },
       maxResults: {
         type: 'number',
@@ -644,8 +644,9 @@ export const ALL_TOOL_SCHEMAS = [
  * Type definitions for tool inputs and outputs
  */
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ListCodebasesInput {
-  // No parameters
+  // No parameters required for listing codebases
 }
 
 export interface ListCodebasesOutput {
@@ -704,8 +705,9 @@ export interface GetCodebaseStatsOutput {
   sizeBytes: number;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface OpenCodebaseManagerInput {
-  // No parameters
+  // No parameters required for opening the manager UI
 }
 
 export interface OpenCodebaseManagerOutput {

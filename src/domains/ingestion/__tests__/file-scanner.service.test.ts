@@ -22,7 +22,7 @@ describe('FileScannerService', () => {
     // Clean up test directory
     try {
       await fs.rm(testDir, { recursive: true, force: true });
-    } catch (error) {
+    } catch (_error) {
       // Ignore cleanup errors
     }
   });
@@ -336,7 +336,7 @@ describe('FileScannerService', () => {
           path.join(testDir, 'real.ts'),
           path.join(testDir, 'link.ts')
         );
-      } catch (error) {
+      } catch (_error) {
         // Skip test if symlinks not supported
         return;
       }
@@ -440,7 +440,7 @@ describe('FileScannerService', () => {
 
           // Restore permissions for cleanup
           await fs.chmod(path.join(testDir, 'unreadable'), 0o755);
-        } catch (error) {
+        } catch (_error) {
           // Skip if chmod not supported
         }
       }

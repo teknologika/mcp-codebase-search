@@ -156,7 +156,7 @@ export class FastifyServer {
         if (diffDays === 1) return '1 day ago';
         if (diffDays < 0) return 'Unknown'; // Future date
         return `${diffDays} days ago`;
-      } catch (error) {
+      } catch (_error) {
         return 'Unknown';
       }
     });
@@ -215,7 +215,7 @@ export class FastifyServer {
         console.log('Manager UI server is stopping');
         try {
           await this.fastify.close();
-        } catch (error) {
+        } catch (_error) {
           // Ignore close errors
         }
         process.exit(0);
