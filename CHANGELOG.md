@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.1.12] - 2026-03-21
+
+### Added
+- **Staleness warnings**: `search_codebases` and `get_chunk_content` now include a `staleWarning` field when the index is more than 10 minutes old, with the exact `update_codebase_scan` call needed to refresh
+- **`lastScanAge` in `list_codebases`**: Each codebase entry now includes `lastScanAge` (seconds since last scan) so callers can assess index freshness without running a search
+- **`get_chunk_content` fuzzy matching**: When an exact line-range match fails (e.g. after incremental rescans shift line numbers), a ±5 line fuzzy search is used automatically. The response includes `lineNumberDrift` indicating how much the chunk shifted
+- **`get_chunk_content` path error clarity**: Absolute paths that cannot be normalised now throw a descriptive error instead of silently falling back to an always-failing query
+- **`update_codebase_scan` verbose mode**: New `verbose` parameter (default `false`). When `true`, response includes `addedFilePaths`, `modifiedFilePaths`, and `deletedFilePaths` arrays
+- **`update_codebase_scan` cache clearing**: Search cache is automatically cleared after every successful rescan. Response includes `cacheCleared: true`
+- **Lock file exclusion**: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `composer.lock`, `Gemfile.lock`, and `Cargo.lock` are excluded from indexing by default
+- **`codebaseName` input validation**: Tool schemas now enforce `^[a-zA-Z0-9_-]{1,64}$`, producing clear validation errors for invalid names
+- **Folder name pre-population**: In the Manager UI ingest form, selecting a folder via the browser or typing a path now auto-populates the codebase name field from the folder name
+
+### Fixed
+- **Dead code in `listCodebases`**: Removed unreachable duplicate loop left over from a prior refactor
+- **Search cache not invalidated after rescan**: `update_codebase_scan` now correctly clears the in-memory search cache
+- **Silent error swallowing in `listCodebases`**: The backward-compatibility chunk-table path now logs a `warn` instead of silently ignoring metadata read failures
+- **`applyNameBoost` log flood**: Downgraded the per-result "Name boost check" log from `info` to `debug`, eliminating up to 500 spurious log lines per search query
+- **`respectGitignore` defaulting to `false` in Manager UI**: Full ingest via the web form now correctly defaults to respecting `.gitignore`
+
+### Changed
+- **Triple JSDoc collapsed**: `updateLastIngestionTimestamp` stub now has a single clean comment block with a clear TODO
+
 ## [0.1.11] - 2026-03-08
 
 ### Fixed
@@ -13,25 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clear rows array immediately after extracting file hash map
   - Clear file maps before method completion to help garbage collection
   - Prevents LanceDB native code from encountering memory corruption during cleanup
-  - Rescan operations now complete successfully even when no files have changed
-
-### Technical Details
-- Issue occurred when `table.query().toArray()` loaded thousands of chunks into memory
-- Memory stayed allocated throughout rescan operation when no changes were detected
-- LanceDB's Rust/C++ native code crashed during cleanup of large result sets
-- Fix reduces memory pressure and helps prevent native code memory corruption
 
 ## [0.1.8] - 2026-02-18
 
 ### Fixed
-- **Rescan file-level chunk preservation**: Fixed bug where files containing only imports/exports (like `builtinCatalog.ts`) were lost during rescan operations
+- **Rescan file-level chunk preservation**: Fixed bug where files containing only imports/exports were lost during rescan operations
   - Extended `rescanCodebase` to include the same file-level fallback logic as `ingestCodebase`
-  - Files with zero AST chunks now create file-level chunks during rescan
-  - Prevents data loss when rescanning codebases with import-only files
 
 ### Changed
 - Improved consistency between `ingestCodebase` and `rescanCodebase` implementations
-- Both methods now handle files with only imports/exports identically
 
 ## [0.1.7] - 2026-02-17
 
@@ -39,19 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI graceful shutdown**: Fixed mutex error during CLI ingestion cleanup
   - Added `close()` method to `LanceDBClientWrapper` for proper connection cleanup
   - Changed CLI from `process.exit(0)` to `process.exitCode = 0` for graceful shutdown
-  - Prevents `libc++abi: terminating due to uncaught exception` mutex errors
-  - Ensures LanceDB tables are properly persisted to disk
-
 - **Rescan metadata corruption**: Fixed bug where `update_codebase_scan` corrupted codebase metadata
   - Changed MCP server to use `rescanCodebase` instead of `ingestCodebase` for updates
-  - Preserves codebase path and metadata during incremental updates
-  - Prevents "Codebase has no stored path" errors after rescan
 
 ### Added
 - File-level chunk fallback for files with only imports/exports
-  - Files that produce zero AST chunks now create a single file-level chunk
-  - Added `'file'` to `ChunkType` enum
-  - Enables indexing of configuration and type definition files
+- Added `'file'` to `ChunkType` enum
 
 ## [0.1.6] - 2026-02-17
 
@@ -60,13 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local-first semantic search for codebases
 - Tree-sitter AST-aware code chunking
 - Multi-language support (TypeScript, JavaScript, Python, Java, C#)
-- MCP server integration
-- CLI ingestion tool
-- Web-based management UI
-- Incremental rescan functionality
-- Test and library file detection
-- Gitignore support
+- MCP server integration with stdio transport
+- CLI ingestion tool (`mcp-codebase-ingest`)
+- Web-based management UI (`mcp-codebase-manager`)
+- Incremental rescan with file hash change detection
+- Test and library file detection and filtering
+- Gitignore support during ingestion
 
+[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.11...v0.1.12
+[0.1.11]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.8...v0.1.11
 [0.1.8]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/teknologika/mcp-codebase-search/releases/tag/v0.1.6

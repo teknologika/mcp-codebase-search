@@ -255,6 +255,14 @@ export class IngestionService {
         languages: Array.from(languageStats.keys()),
       });
 
+      let totalSizeBytes = 0;
+      const chunkTypeMap = new Map<string, number>();
+      for (const chunk of allChunks) {
+        totalSizeBytes += (chunk.content || '').length;
+        const ct = chunk.chunkType || 'unknown';
+        chunkTypeMap.set(ct, (chunkTypeMap.get(ct) || 0) + 1);
+      }
+
       // Log memory after parsing
       logMemoryUsage(this.logger, { phase: 'afterParsing', codebaseName, chunkCount: allChunks.length });
 
@@ -310,7 +318,9 @@ export class IngestionService {
         allChunks.length,
         supportedFiles.length,
         languageStats,
-        ingestionTimestamp
+        ingestionTimestamp,
+        totalSizeBytes,
+        chunkTypeMap
       );
 
       // Calculate statistics
@@ -907,12 +917,15 @@ export class IngestionService {
         const rows = await rescanTable.query().toArray();
         const languageMap = new Map<string, { fileCount: Set<string>; chunkCount: number }>();
         const fileSet = new Set<string>();
+        let rescanSizeBytes = 0;
+        const rescanChunkTypeMap = new Map<string, number>();
 
         for (const row of rows) {
           const language = row.language || 'unknown';
           const filePath = row.filePath || '';
           
           fileSet.add(filePath);
+          rescanSizeBytes += (row.content || '').length;
 
           if (!languageMap.has(language)) {
             languageMap.set(language, { fileCount: new Set(), chunkCount: 0 });
@@ -920,6 +933,9 @@ export class IngestionService {
           const langStats = languageMap.get(language)!;
           langStats.fileCount.add(filePath);
           langStats.chunkCount++;
+
+          const ct = row.chunkType || row.chunktype || 'unknown';
+          rescanChunkTypeMap.set(ct, (rescanChunkTypeMap.get(ct) || 0) + 1);
         }
 
         const languageStats = new Map<string, { fileCount: number; chunkCount: number }>();
@@ -936,7 +952,9 @@ export class IngestionService {
           rows.length,
           fileSet.size,
           languageStats,
-          rescanTimestamp
+          rescanTimestamp,
+          rescanSizeBytes,
+          rescanChunkTypeMap
         );
       }
 
@@ -1012,82 +1030,73 @@ export class IngestionService {
     chunkCount: number,
     fileCount: number,
     languageStats: Map<string, { fileCount: number; chunkCount: number }>,
-    ingestionTimestamp: string
+    ingestionTimestamp: string,
+    sizeBytes?: number,
+    chunkTypes?: Map<string, number>
   ): Promise<void> {
-        try {
-          // Get existing metadata to preserve createdAt
-          const existingMetadata = await this.lanceClient.getMetadata(codebaseName);
+    try {
+      // Get existing metadata to preserve createdAt
+      const existingMetadata = await this.lanceClient.getMetadata(codebaseName);
 
-          // Calculate total size from all chunks
-          const metadataTable = await this.lanceClient.getOrCreateTable(codebaseName);
-          let sizeBytes = 0;
-          const chunkTypeMap = new Map<string, number>();
+      const chunkTypeMap = chunkTypes ?? new Map<string, number>();
+      const computedSizeBytes = sizeBytes ?? 0;
 
-          if (metadataTable) {
-            const rows = await metadataTable.query().toArray();
-            for (const row of rows) {
-              sizeBytes += (row.content || '').length;
-              const chunkType = row.chunkType || row.chunktype || 'unknown';
-              chunkTypeMap.set(chunkType, (chunkTypeMap.get(chunkType) || 0) + 1);
-            }
-          }
+      // Calculate last modified time from filesystem
+      const { stat } = await import('fs/promises');
+      let lastModified = ingestionTimestamp;
 
-          // Calculate last modified time from filesystem
-          const { stat } = await import('fs/promises');
-          let lastModified = ingestionTimestamp;
-
-          try {
-            // Get the most recent file modification time
-            const stats = await stat(codebasePath);
-            lastModified = stats.mtime.toISOString();
-          } catch (_error) {
-            // Use ingestion timestamp if we can't read filesystem
-            this.logger.warn('Could not read filesystem mtime, using ingestion timestamp', {
-              codebaseName,
-              codebasePath,
-            });
-          }
-
-          // Prepare metadata
-          const metadata = {
-            name: codebaseName,
-            path: codebasePath,
-            createdAt: existingMetadata?.createdAt || ingestionTimestamp,
-            lastIngested: ingestionTimestamp,
-            lastModified,
-            chunkCount,
-            fileCount,
-            sizeBytes,
-            languages: Array.from(languageStats.entries()).map(([language, stats]) => ({
-              language,
-              fileCount: stats.fileCount,
-              chunkCount: stats.chunkCount,
-            })),
-            chunkTypes: Array.from(chunkTypeMap.entries()).map(([type, count]) => ({
-              type,
-              count,
-            })),
-            schemaVersion: LanceDBClientWrapper.getSchemaVersion(),
-            tableName: LanceDBClientWrapper.getTableName(codebaseName),
-            status: 'active' as const,
-          };
-
-          await this.lanceClient.setMetadata(metadata);
-
-          this.logger.debug('Metadata written successfully', {
-            codebaseName,
-            chunkCount,
-            fileCount,
-          });
-        } catch (error) {
-          // Log error but don't fail ingestion
-          this.logger.error(
-            'Failed to write metadata',
-            error instanceof Error ? error : new Error(String(error)),
-            { codebaseName }
-          );
-        }
+      try {
+        // Get the most recent file modification time
+        const stats = await stat(codebasePath);
+        lastModified = stats.mtime.toISOString();
+      } catch (_error) {
+        // Use ingestion timestamp if we can't read filesystem
+        this.logger.warn('Could not read filesystem mtime, using ingestion timestamp', {
+          codebaseName,
+          codebasePath,
+        });
       }
+
+      // Prepare metadata
+      const metadata = {
+        name: codebaseName,
+        path: codebasePath,
+        createdAt: existingMetadata?.createdAt || ingestionTimestamp,
+        lastIngested: ingestionTimestamp,
+        lastModified,
+        chunkCount,
+        fileCount,
+        sizeBytes: computedSizeBytes,
+        languages: Array.from(languageStats.entries()).map(([language, stats]) => ({
+          language,
+          fileCount: stats.fileCount,
+          chunkCount: stats.chunkCount,
+        })),
+        chunkTypes: Array.from(chunkTypeMap.entries()).map(([type, count]) => ({
+          type,
+          count,
+        })),
+        schemaVersion: LanceDBClientWrapper.getSchemaVersion(),
+        tableName: LanceDBClientWrapper.getTableName(codebaseName),
+        status: 'active' as const,
+      };
+
+      await this.lanceClient.setMetadata(metadata);
+
+      this.logger.debug('Metadata written successfully', {
+        codebaseName,
+        chunkCount,
+        fileCount,
+      });
+    } catch (error) {
+      // Log error but don't fail ingestion
+      this.logger.error(
+        'Failed to write metadata',
+        error instanceof Error ? error : new Error(String(error)),
+        { codebaseName }
+      );
+    }
+  }
 
 
 }

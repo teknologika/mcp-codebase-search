@@ -96,6 +96,7 @@ async function main() {
     await lanceClient.initialize();
 
     const embeddingService = createEmbeddingService(config, logger);
+    console.log('Initializing embedding model (this may take a few minutes on first run while the model downloads)...');
     await embeddingService.initialize();
 
     const ingestionService = new IngestionService(
