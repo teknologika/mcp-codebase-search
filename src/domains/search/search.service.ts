@@ -360,7 +360,7 @@ export class SearchService {
     const filename = filePath.split('/').pop() || '';
     const filenameWithoutExt = filename.replace(/\.[^.]+$/, '').toLowerCase();
     
-    logger.info('Name boost check', {
+    logger.debug('Name boost check', {
       query,
       queryTerms,
       filename,

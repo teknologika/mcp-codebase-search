@@ -53,6 +53,11 @@ export const LIST_CODEBASES_SCHEMA = {
               description: 'ISO 8601 timestamp of the last ingestion',
               format: 'date-time',
             },
+            lastScanAge: {
+              type: 'number',
+              description: 'Seconds since the last ingestion',
+              minimum: 0,
+            },
             languages: {
               type: 'array',
               description: 'List of programming languages detected in the codebase',
@@ -91,6 +96,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
       codebaseName: {
         type: 'string',
         description: 'Optional filter to search only within a specific codebase',
+        pattern: '^[a-zA-Z0-9_-]{1,64}$',
       },
       language: {
         type: 'string',
@@ -181,6 +187,10 @@ export const SEARCH_CODEBASES_SCHEMA = {
         type: 'number',
         description: 'Time taken to execute the query in milliseconds',
         minimum: 0,
+      },
+      staleWarning: {
+        type: 'string',
+        description: 'Advisory warning when the codebase index may be stale',
       },
     },
     required: ['results', 'totalResults', 'queryTime'],
@@ -338,6 +348,7 @@ export const LIST_FILES_SCHEMA = {
       codebaseName: {
         type: 'string',
         description: 'Name of the codebase to list files from',
+        pattern: '^[a-zA-Z0-9_-]{1,64}$',
       },
     },
     required: ['codebaseName'],
@@ -417,6 +428,11 @@ export const UPDATE_CODEBASE_SCAN_SCHEMA = {
         description: 'Name of the codebase to refresh',
         minLength: 1,
       },
+      verbose: {
+        type: 'boolean',
+        description: 'Include verbose file path details in the response',
+        default: false,
+      },
     },
     required: ['name'],
     additionalProperties: false,
@@ -432,49 +448,64 @@ export const UPDATE_CODEBASE_SCAN_SCHEMA = {
         type: 'string',
         description: 'File system path to the codebase directory',
       },
-      totalFiles: {
+      filesScanned: {
         type: 'number',
-        description: 'Total number of files scanned',
+        description: 'Total number of supported files scanned',
         minimum: 0,
       },
-      supportedFiles: {
+      filesAdded: {
         type: 'number',
-        description: 'Number of supported files processed',
+        description: 'Number of files added during rescan',
         minimum: 0,
       },
-      unsupportedFiles: {
+      filesModified: {
         type: 'number',
-        description: 'Number of unsupported files skipped',
+        description: 'Number of files modified during rescan',
         minimum: 0,
       },
-      chunksCreated: {
+      filesDeleted: {
+        type: 'number',
+        description: 'Number of files deleted during rescan',
+        minimum: 0,
+      },
+      filesUnchanged: {
+        type: 'number',
+        description: 'Number of files that did not change during rescan',
+        minimum: 0,
+      },
+      chunksAdded: {
         type: 'number',
         description: 'Total number of code chunks created',
         minimum: 0,
       },
-      languages: {
+      chunksDeleted: {
+        type: 'number',
+        description: 'Total number of code chunks deleted',
+        minimum: 0,
+      },
+      cacheCleared: {
+        type: 'boolean',
+        description: 'Whether the in-memory search cache was cleared after rescan',
+      },
+      addedFilePaths: {
         type: 'array',
-        description: 'Languages detected in the codebase',
+        description: 'File paths added during the rescan (verbose mode only)',
         items: {
-          type: 'object',
-          properties: {
-            language: {
-              type: 'string',
-              description: 'Programming language name',
-            },
-            fileCount: {
-              type: 'number',
-              description: 'Number of files in this language',
-              minimum: 0,
-            },
-            chunkCount: {
-              type: 'number',
-              description: 'Number of chunks in this language',
-              minimum: 0,
-            },
-          },
-          required: ['language', 'fileCount', 'chunkCount'],
-          additionalProperties: false,
+          type: 'string',
+        },
+      },
+      modifiedFilePaths: {
+        type: 'array',
+        description: 'File paths modified during the rescan (verbose mode only)',
+        items: {
+          type: 'string',
+        },
+      },
+      deletedFilePaths: {
+        type: 'array',
+        description: 'File paths deleted during the rescan (verbose mode only)',
+        items: {
+          type: 'string',
         },
       },
       durationMs: {
@@ -487,7 +518,7 @@ export const UPDATE_CODEBASE_SCAN_SCHEMA = {
         description: 'Status message about the operation',
       },
     },
-    required: ['name', 'path', 'totalFiles', 'supportedFiles', 'unsupportedFiles', 'chunksCreated', 'languages', 'durationMs', 'message'],
+    required: ['name', 'path', 'filesScanned', 'filesAdded', 'filesModified', 'filesDeleted', 'filesUnchanged', 'chunksAdded', 'chunksDeleted', 'cacheCleared', 'durationMs', 'message'],
     additionalProperties: false,
   },
 } as const;
@@ -507,6 +538,7 @@ export const GET_CHUNK_CONTENT_SCHEMA = {
         type: 'string',
         description: 'Name of the codebase containing the chunk',
         minLength: 1,
+        pattern: '^[a-zA-Z0-9_-]{1,64}$',
       },
       filePath: {
         type: 'string',
@@ -560,6 +592,14 @@ export const GET_CHUNK_CONTENT_SCHEMA = {
         type: 'string',
         description: 'Full code content of the chunk',
       },
+      lineNumberDrift: {
+        type: 'number',
+        description: 'Difference between requested and actual start line when fuzzy matching is used',
+      },
+      staleWarning: {
+        type: 'string',
+        description: 'Advisory warning when the codebase index may be stale',
+      },
     },
     required: ['codebaseName', 'filePath', 'startLine', 'endLine', 'language', 'chunkType', 'content'],
     additionalProperties: false,
@@ -581,6 +621,7 @@ export const GET_FILE_CONTENT_SCHEMA = {
         type: 'string',
         description: 'Name of the codebase containing the file',
         minLength: 1,
+        pattern: '^[a-zA-Z0-9_-]{1,64}$',
       },
       filePath: {
         type: 'string',
@@ -656,6 +697,7 @@ export interface ListCodebasesOutput {
     chunkCount: number;
     fileCount: number;
     lastIngestion: string;
+    lastScanAge?: number;
     languages: string[];
   }>;
 }
@@ -681,6 +723,7 @@ export interface SearchCodebasesOutput {
   }>;
   totalResults: number;
   queryTime: number;
+  staleWarning?: string;
 }
 
 export interface GetCodebaseStatsInput {
@@ -735,20 +778,23 @@ export interface ListFilesOutput {
 
 export interface UpdateCodebaseScanInput {
   name: string;
+  verbose?: boolean;
 }
 
 export interface UpdateCodebaseScanOutput {
   name: string;
   path: string;
-  totalFiles: number;
-  supportedFiles: number;
-  unsupportedFiles: number;
-  chunksCreated: number;
-  languages: Array<{
-    language: string;
-    fileCount: number;
-    chunkCount: number;
-  }>;
+  filesScanned: number;
+  filesAdded: number;
+  filesModified: number;
+  filesDeleted: number;
+  filesUnchanged: number;
+  chunksAdded: number;
+  chunksDeleted: number;
+  cacheCleared: boolean;
+  addedFilePaths?: string[];
+  modifiedFilePaths?: string[];
+  deletedFilePaths?: string[];
   durationMs: number;
   message: string;
 }
@@ -768,6 +814,8 @@ export interface GetChunkContentOutput {
   language: string;
   chunkType: string;
   content: string;
+  lineNumberDrift?: number;
+  staleWarning?: string;
 }
 
 export interface GetFileContentInput {

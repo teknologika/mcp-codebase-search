@@ -18,6 +18,7 @@ describe('CodebaseService', () => {
     
     // Create mock LanceDB client
     mockLanceClient = {
+      listAllMetadata: vi.fn(),
       listTables: vi.fn(),
       getOrCreateTable: vi.fn(),
       tableExists: vi.fn(),
@@ -38,6 +39,21 @@ describe('CodebaseService', () => {
     });
 
     it('should return codebases with metadata', async () => {
+      vi.mocked(mockLanceClient.listAllMetadata).mockResolvedValue([
+        {
+          name: 'test-project',
+          path: '/path/to/project',
+          chunkCount: 50,
+          fileCount: 10,
+          lastIngested: '2024-01-01T00:00:00Z',
+          languages: ['typescript', 'javascript'],
+          createdAt: '2024-01-01T00:00:00Z',
+          lastModified: '2024-01-01T00:00:00Z',
+          tableName: 'codebase_test-project_1_0_0',
+          status: 'active',
+        } as any,
+      ]);
+
       const mockTables = [
         {
           name: 'codebase_test-project_1_0_0',
@@ -95,6 +111,7 @@ describe('CodebaseService', () => {
         lastIngestion: '2024-01-01T00:00:00Z',
         languages: ['typescript', 'javascript'],
       });
+      expect(result[0].lastScanAge).toBeGreaterThanOrEqual(0);
     });
 
     it('should skip tables without codebaseName metadata', async () => {
@@ -175,6 +192,72 @@ describe('CodebaseService', () => {
 
       expect(result).toBe(0);
       expect(mockTable.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getChunkContent', () => {
+    it('should recover from small line drift with fuzzy matching', async () => {
+      const exactToArray = vi.fn().mockResolvedValue([]);
+      const fuzzyToArray = vi.fn().mockResolvedValue([
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          startLine: 10,
+          endLine: 20,
+          content: 'function test() {}',
+        },
+      ]);
+
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          where: vi.fn().mockImplementation((clause: string) => {
+            if (clause.includes('>= 7') && clause.includes('<= 17')) {
+              return {
+                toArray: fuzzyToArray,
+              };
+            }
+
+            return {
+              limit: vi.fn().mockReturnValue({
+                toArray: exactToArray,
+              }),
+            };
+          }),
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const result = await service.getChunkContent('test-project', 'src/test.ts', 12, 22);
+
+      expect(result).toMatchObject({
+        codebaseName: 'test-project',
+        filePath: 'src/test.ts',
+        startLine: 10,
+        endLine: 20,
+        language: 'typescript',
+        chunkType: 'unknown',
+        content: 'function test() {}',
+        lineNumberDrift: 2,
+      });
+      expect(exactToArray).toHaveBeenCalledOnce();
+      expect(fuzzyToArray).toHaveBeenCalledOnce();
+    });
+
+    it('should fail fast when an absolute path cannot be normalized', async () => {
+      const mockTable = {
+        query: vi.fn(),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      vi.spyOn(service, 'getCodebasePath').mockRejectedValue(
+        new CodebaseError("Codebase 'test-project' has no stored path")
+      );
+
+      await expect(
+        service.getChunkContent('test-project', '/absolute/path/to/src/test.ts', 12, 22)
+      ).rejects.toThrow("Cannot resolve absolute path '/absolute/path/to/src/test.ts'");
+      expect(mockTable.query).not.toHaveBeenCalled();
     });
   });
 

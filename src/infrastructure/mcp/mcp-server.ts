@@ -48,6 +48,7 @@ const silentLogger = {
 } as any;
 
 const execAsync = promisify(exec);
+const STALE_WARNING_THRESHOLD_SECONDS = 600;
 
 // Get the constructors - handle both ESM and CJS
 const Ajv = (AjvModule as any).default || AjvModule;
@@ -202,6 +203,9 @@ export class MCPServer {
       language: input.language,
       maxResults: input.maxResults,
     });
+    const staleWarning = input.codebaseName
+      ? await this.getStaleWarning(input.codebaseName)
+      : null;
 
     // If includeContent is false (default), remove content and codebaseName from results
     if (!input.includeContent) {
@@ -212,30 +216,32 @@ export class MCPServer {
       });
       
       // Format response with filtered results
+      const payload = {
+        results: filteredResults,
+        totalResults: results.totalResults,
+        queryTime: results.queryTime,
+        ...(staleWarning ? { staleWarning } : {}),
+      };
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(
-              {
-                results: filteredResults,
-                totalResults: results.totalResults,
-                queryTime: results.queryTime,
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify(payload, null, 2),
           },
         ],
       };
     }
 
     // Format response with full results
+    const payload = {
+      ...results,
+      ...(staleWarning ? { staleWarning } : {}),
+    };
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(results, null, 2),
+          text: JSON.stringify(payload, null, 2),
         },
       ],
     };
@@ -383,7 +389,7 @@ export class MCPServer {
     // Validate input
     this.validateInput(UPDATE_CODEBASE_SCAN_SCHEMA.inputSchema, args);
 
-    const { name } = args as { name: string };
+    const { name, verbose = false } = args as { name: string; verbose?: boolean };
 
     try {
       // Get the codebase to find its path
@@ -402,28 +408,33 @@ export class MCPServer {
         name,
         codebase.path
       );
+      this.searchService.clearCache();
+
+      const response = {
+        name,
+        path: codebase.path,
+        filesScanned: result.filesScanned,
+        filesAdded: result.filesAdded,
+        filesModified: result.filesModified,
+        filesDeleted: result.filesDeleted,
+        filesUnchanged: result.filesUnchanged,
+        chunksAdded: result.chunksAdded,
+        chunksDeleted: result.chunksDeleted,
+        durationMs: result.durationMs,
+        cacheCleared: true,
+        message: `Successfully refreshed codebase '${name}': ${result.filesAdded} added, ${result.filesModified} modified, ${result.filesDeleted} deleted, ${result.filesUnchanged} unchanged`,
+        ...(verbose ? {
+          addedFilePaths: result.addedFilePaths || [],
+          modifiedFilePaths: result.modifiedFilePaths || [],
+          deletedFilePaths: result.deletedFilePaths || [],
+        } : {}),
+      };
 
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(
-              {
-                name,
-                path: codebase.path,
-                filesScanned: result.filesScanned,
-                filesAdded: result.filesAdded,
-                filesModified: result.filesModified,
-                filesDeleted: result.filesDeleted,
-                filesUnchanged: result.filesUnchanged,
-                chunksAdded: result.chunksAdded,
-                chunksDeleted: result.chunksDeleted,
-                durationMs: result.durationMs,
-                message: `Successfully refreshed codebase '${name}': ${result.filesAdded} added, ${result.filesModified} modified, ${result.filesDeleted} deleted, ${result.filesUnchanged} unchanged`,
-              },
-              null,
-              2
-            ),
+            text: JSON.stringify(response, null, 2),
           },
         ],
       };
@@ -452,12 +463,18 @@ export class MCPServer {
         input.startLine,
         input.endLine
       );
+      const staleWarning = await this.getStaleWarning(input.codebaseName);
+
+      const response = {
+        ...chunk,
+        ...(staleWarning ? { staleWarning } : {}),
+      };
 
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(chunk, null, 2),
+            text: JSON.stringify(response, null, 2),
           },
         ],
       };
@@ -499,6 +516,34 @@ export class MCPServer {
         `Failed to get file content: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
+    }
+  }
+
+  /**
+   * Return an advisory warning if a codebase scan is stale.
+   */
+  private async getStaleWarning(codebaseName: string): Promise<string | null> {
+    try {
+      const codebases = await this.codebaseService.listCodebases();
+      const codebase = codebases.find(entry => entry.name === codebaseName);
+      if (!codebase?.lastIngestion) {
+        return null;
+      }
+
+      const parsedLastIngestion = Date.parse(codebase.lastIngestion);
+      if (Number.isNaN(parsedLastIngestion)) {
+        return null;
+      }
+
+      const ageSeconds = Math.floor((Date.now() - parsedLastIngestion) / 1000);
+      if (ageSeconds <= STALE_WARNING_THRESHOLD_SECONDS) {
+        return null;
+      }
+
+      const ageMinutes = Math.floor(ageSeconds / 60);
+      return `Index is ${ageMinutes} minutes old. Call update_codebase_scan('${codebaseName}') to refresh.`;
+    } catch {
+      return null;
     }
   }
 

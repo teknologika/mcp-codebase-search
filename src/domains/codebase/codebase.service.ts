@@ -30,6 +30,20 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function getScanAgeSeconds(lastIngestion: string): number | undefined {
+  if (!lastIngestion) {
+    return undefined;
+  }
+
+  const parsed = Date.parse(lastIngestion);
+  if (Number.isNaN(parsed)) {
+    return undefined;
+  }
+
+  const ageSeconds = Math.floor((Date.now() - parsed) / 1000);
+  return ageSeconds >= 0 ? ageSeconds : undefined;
+}
+
 /**
  * Error thrown when codebase operations fail
  */
@@ -53,221 +67,138 @@ export class CodebaseService {
 
   /**
    * List all codebases with metadata
+   * Reads from metadata table with fallback to chunk tables for backward compatibility
    */
-  /**
-     * List all codebases with metadata
-     * Reads from metadata table with fallback to chunk tables for backward compatibility
-     */
-    async listCodebases(): Promise<CodebaseMetadata[]> {
+  async listCodebases(): Promise<CodebaseMetadata[]> {
+    try {
+      logger.debug('Listing all codebases');
+
+      const codebases: CodebaseMetadata[] = [];
+      const codebaseNames = new Set<string>();
+
       try {
-        logger.debug('Listing all codebases');
+        const metadataList = await this.lanceClient.listAllMetadata();
 
-        const codebases: CodebaseMetadata[] = [];
-        const codebaseNames = new Set<string>();
+        if (metadataList.length > 0) {
+          logger.debug('Retrieved codebases from metadata table', {
+            count: metadataList.length,
+          });
 
-        // Try to read from metadata table first
-        try {
-          const metadataList = await this.lanceClient.listAllMetadata();
-
-          if (metadataList.length > 0) {
-            logger.debug('Retrieved codebases from metadata table', {
-              count: metadataList.length,
+          for (const meta of metadataList) {
+            const lastIngestion = meta.lastIngested;
+            codebaseNames.add(meta.name);
+            codebases.push({
+              name: meta.name,
+              path: meta.path,
+              chunkCount: meta.chunkCount,
+              fileCount: meta.fileCount,
+              lastIngestion,
+              lastScanAge: getScanAgeSeconds(lastIngestion),
+              languages: meta.languages.map((l: any) => l.language || l),
+              createdAt: meta.createdAt,
+              lastModified: meta.lastModified,
+              tableName: meta.tableName,
+              status: meta.status,
+              lastError: meta.lastError,
             });
-
-            for (const meta of metadataList) {
-              codebaseNames.add(meta.name);
-              codebases.push({
-                name: meta.name,
-                path: meta.path,
-                chunkCount: meta.chunkCount,
-                fileCount: meta.fileCount,
-                lastIngestion: meta.lastIngested,
-                languages: meta.languages.map((l: any) => l.language || l),
-                createdAt: meta.createdAt,
-                lastModified: meta.lastModified,
-                tableName: meta.tableName,
-                status: meta.status,
-                lastError: meta.lastError,
-              });
-            }
           }
-        } catch (error) {
-          logger.warn('Failed to read from metadata table, will read from chunk tables', {
-            error: error instanceof Error ? error.message : String(error),
+        }
+      } catch (error) {
+        logger.warn('Failed to read from metadata table, will read from chunk tables', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      const tables = await this.lanceClient.listTables();
+
+      for (const table of tables) {
+        const metadata = table.metadata;
+        if (!metadata?.codebaseName) {
+          continue;
+        }
+
+        const codebaseName = metadata.codebaseName as string;
+        if (codebaseNames.has(codebaseName)) {
+          continue;
+        }
+
+        try {
+          const lanceTable = await this.lanceClient.getConnection().openTable(table.name);
+          const count = await lanceTable.countRows();
+
+          let path = '';
+          let fileCount = 0;
+          let lastIngestion = '';
+          let languages: string[] = [];
+
+          try {
+            const sample = await lanceTable.query().limit(1).toArray();
+            if (sample.length > 0) {
+              const firstRow = sample[0];
+              path = firstRow._path || '';
+              lastIngestion = firstRow._lastIngestion || firstRow._createdAt || '';
+
+              const allRows = await lanceTable.query().select(['language', 'filePath']).toArray();
+              const uniqueFiles = new Set<string>();
+              const uniqueLanguages = new Set<string>();
+
+              for (const row of allRows) {
+                if (row.filePath) uniqueFiles.add(row.filePath);
+                if (row.language) uniqueLanguages.add(row.language);
+              }
+
+              fileCount = uniqueFiles.size;
+              languages = Array.from(uniqueLanguages);
+            }
+          } catch (error) {
+            logger.warn('Could not read metadata from chunk table, using defaults', {
+              tableName: table.name,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+
+          codebases.push({
+            name: codebaseName,
+            path,
+            chunkCount: count,
+            fileCount,
+            lastIngestion,
+            lastScanAge: getScanAgeSeconds(lastIngestion),
+            languages,
+            status: count === 0 ? 'empty' : 'active',
+          });
+        } catch (err: unknown) {
+          codebases.push({
+            name: codebaseName,
+            path: '',
+            chunkCount: 0,
+            fileCount: 0,
+            lastIngestion: '',
+            languages: [],
+            status: 'corrupted',
+            lastError: getErrorMessage(err),
           });
         }
-
-        // Also read from chunk tables for codebases not in metadata table (backward compatibility)
-        const tables = await this.lanceClient.listTables();
-
-        for (const table of tables) {
-          const metadata = table.metadata;
-
-          // Only include tables that are codebase tables
-          if (!metadata?.codebaseName) {
-            continue;
-          }
-
-          const codebaseName = metadata?.codebaseName as string;
-
-          // Skip if already in metadata table
-          if (codebaseNames.has(codebaseName)) {
-            continue;
-          }
-
-          try {
-            // Open table directly by name
-            const lanceTable = await this.lanceClient.getConnection().openTable(table.name);
-            const count = await lanceTable.countRows();
-
-            // Extract metadata from first row if available
-            let path = '';
-            let fileCount = 0;
-            let lastIngestion = '';
-            let languages: string[] = [];
-
-            try {
-              const sample = await lanceTable.query().limit(1).toArray();
-              if (sample.length > 0) {
-                const firstRow = sample[0];
-                path = firstRow._path || '';
-                lastIngestion = firstRow._lastIngestion || firstRow._createdAt || '';
-
-                // Get unique languages and file count from all rows
-                const allRows = await lanceTable.query().select(['language', 'filePath']).toArray();
-                const uniqueFiles = new Set<string>();
-                const uniqueLanguages = new Set<string>();
-
-                for (const row of allRows) {
-                  if (row.filePath) uniqueFiles.add(row.filePath);
-                  if (row.language) uniqueLanguages.add(row.language);
-                }
-
-                fileCount = uniqueFiles.size;
-                languages = Array.from(uniqueLanguages);
-              }
-            } catch (_error) {
-              // Silently ignore metadata errors - table may be corrupted or incompatible
-              // This is not critical for listing codebases
-            }
-
-            codebases.push({
-              name: codebaseName,
-              path,
-              chunkCount: count,
-              fileCount,
-              lastIngestion,
-              languages,
-              status: count === 0 ? 'empty' : 'active',
-            });
-          } catch (err: unknown) {
-            // Mark as corrupted if we can't read the table
-            codebases.push({
-              name: codebaseName,
-              path: '',
-              chunkCount: 0,
-              fileCount: 0,
-              lastIngestion: '',
-              languages: [],
-              status: 'corrupted',
-              lastError: getErrorMessage(err),
-            });
-          }
-        }
-
-        logger.debug('Codebases listed successfully', {
-          count: codebases.length,
-          fromMetadata: codebaseNames.size,
-          fromChunkTables: codebases.length - codebaseNames.size,
-        });
-        return codebases;
-
-        for (const table of tables) {
-          const metadata = table.metadata;
-
-          // Only include tables that are codebase tables
-          if (!metadata?.codebaseName) {
-            continue;
-          }
-
-          const codebaseName = metadata?.codebaseName as string;
-
-          try {
-            // Open table directly by name
-            const lanceTable = await this.lanceClient.getConnection().openTable(table.name);
-            const count = await lanceTable.countRows();
-
-            // Extract metadata from first row if available
-            let path = '';
-            let fileCount = 0;
-            let lastIngestion = '';
-            let languages: string[] = [];
-
-            try {
-              const sample = await lanceTable.query().limit(1).toArray();
-              if (sample.length > 0) {
-                const firstRow = sample[0];
-                path = firstRow._path || '';
-                lastIngestion = firstRow._lastIngestion || firstRow._createdAt || '';
-
-                // Get unique languages and file count from all rows
-                const allRows = await lanceTable.query().select(['language', 'filePath']).toArray();
-                const uniqueFiles = new Set<string>();
-                const uniqueLanguages = new Set<string>();
-
-                for (const row of allRows) {
-                  if (row.filePath) uniqueFiles.add(row.filePath);
-                  if (row.language) uniqueLanguages.add(row.language);
-                }
-
-                fileCount = uniqueFiles.size;
-                languages = Array.from(uniqueLanguages);
-              }
-            } catch (_error) {
-              // Silently ignore metadata errors - table may be corrupted or incompatible
-              // This is not critical for listing codebases
-            }
-
-            codebases.push({
-              name: codebaseName,
-              path,
-              chunkCount: count,
-              fileCount,
-              lastIngestion,
-              languages,
-              status: count === 0 ? 'empty' : 'active',
-            });
-          } catch (err: unknown) {
-            // Mark as corrupted if we can't read the table
-            codebases.push({
-              name: codebaseName,
-              path: '',
-              chunkCount: 0,
-              fileCount: 0,
-              lastIngestion: '',
-              languages: [],
-              status: 'corrupted',
-              lastError: getErrorMessage(err),
-            });
-          }
-        }
-
-        logger.debug('Codebases listed successfully (from chunk tables)', {
-          count: codebases.length,
-        });
-        return codebases;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(
-          'Failed to list codebases',
-          error instanceof Error ? error : new Error(errorMessage)
-        );
-        throw new CodebaseError(
-          `Failed to list codebases: ${errorMessage}`,
-          error
-        );
       }
+
+      logger.debug('Codebases listed successfully', {
+        count: codebases.length,
+        fromMetadata: codebaseNames.size,
+        fromChunkTables: codebases.length - codebaseNames.size,
+      });
+      return codebases;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to list codebases',
+        error instanceof Error ? error : new Error(errorMessage)
+      );
+      throw new CodebaseError(
+        `Failed to list codebases: ${errorMessage}`,
+        error
+      );
     }
+  }
 
 
   /**
@@ -760,6 +691,7 @@ export class CodebaseService {
     language: string;
     chunkType: string;
     content: string;
+    lineNumberDrift?: number;
   }> {
     try {
       logger.debug('Getting chunk content', {
@@ -778,28 +710,25 @@ export class CodebaseService {
       // and convert to relative path for consistent querying
       let normalizedFilePath = filePath;
       if (path.isAbsolute(filePath)) {
-        try {
-          const codebasePath = await this.getCodebasePath(codebaseName);
-          normalizedFilePath = path.relative(codebasePath, filePath);
-          logger.debug('Normalized absolute path to relative', {
-            original: filePath,
-            normalized: normalizedFilePath,
-            codebasePath,
-          });
-        } catch (error) {
-          // If we can't get codebase path, try with original path
-          logger.warn('Could not normalize absolute path, using original', {
-            filePath,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+        const codebasePath = await this.getCodebasePath(codebaseName).catch((error) => {
+          throw new CodebaseError(
+            `Cannot resolve absolute path '${filePath}': codebase has no stored path. Use a relative path or re-ingest.`,
+            error
+          );
+        });
+        normalizedFilePath = path.relative(codebasePath, filePath);
+        logger.debug('Normalized absolute path to relative', {
+          original: filePath,
+          normalized: normalizedFilePath,
+          codebasePath,
+        });
       }
 
       // Escape single quotes in filePath for SQL filter
       const escapedFilePath = normalizedFilePath.replace(/'/g, "''");
 
       // Query for the specific chunk
-      const rows = await table
+      const exactRows = await table
         .query()
         .where(
           `\`filePath\` = '${escapedFilePath}' AND \`startLine\` = ${startLine} AND \`endLine\` = ${endLine}`
@@ -807,13 +736,39 @@ export class CodebaseService {
         .limit(1)
         .toArray();
 
-      if (rows.length === 0) {
-        throw new CodebaseError(
-          `Chunk not found: ${normalizedFilePath}:${startLine}-${endLine} in codebase '${codebaseName}'`
-        );
-      }
+      let row = exactRows[0];
+      let lineNumberDrift: number | undefined;
 
-      const row = rows[0];
+      if (!row) {
+        const fuzzyRows = await table
+          .query()
+          .where(
+            `\`filePath\` = '${escapedFilePath}' AND \`startLine\` >= ${startLine - 5} AND \`startLine\` <= ${startLine + 5}`
+          )
+          .toArray();
+
+        if (fuzzyRows.length === 0) {
+          throw new CodebaseError(
+            `Chunk not found after trying original path '${filePath}' and normalized path '${normalizedFilePath}' with lines ${startLine}-${endLine} in codebase '${codebaseName}'`
+          );
+        }
+
+        row = fuzzyRows.reduce((closest, candidate) => {
+          if (!closest) {
+            return candidate;
+          }
+
+          const closestStartLine = Number(closest.startLine || 0);
+          const candidateStartLine = Number(candidate.startLine || 0);
+          const closestDistance = Math.abs(closestStartLine - startLine);
+          const candidateDistance = Math.abs(candidateStartLine - startLine);
+
+          return candidateDistance < closestDistance ? candidate : closest;
+        }, fuzzyRows[0]);
+
+        const actualStartLine = Number(row.startLine || 0);
+        lineNumberDrift = startLine - actualStartLine;
+      }
 
       logger.debug('Chunk content retrieved successfully', {
         codebaseName,
@@ -829,6 +784,7 @@ export class CodebaseService {
         language: row.language || 'unknown',
         chunkType: row.chunkType || 'unknown',
         content: row.content || '',
+        ...(lineNumberDrift !== undefined ? { lineNumberDrift } : {}),
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

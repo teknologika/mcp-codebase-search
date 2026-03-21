@@ -956,6 +956,9 @@ export class IngestionService {
         chunksAdded,
         chunksDeleted,
         durationMs,
+        addedFilePaths: addedFiles.map(file => file.relativePath),
+        modifiedFilePaths: modifiedFiles.map(file => file.relativePath),
+        deletedFilePaths: [...deletedFiles],
       };
 
       this.logger.info('Rescan completed successfully', {
@@ -986,43 +989,31 @@ export class IngestionService {
     }
   }
   /**
-   * Update the lastIngestion timestamp for all chunks in a codebase
-   * This ensures the codebase metadata reflects when it was last scanned
+   * Update the lastIngestion timestamp for all chunks in a codebase.
+   * TODO: Implement when LanceDB supports safe in-place row updates.
+   * Currently a no-op — timestamp is only updated when new chunks are added.
    */
+  private async updateLastIngestionTimestamp(
+    codebaseName: string,
+    timestamp: string
+  ): Promise<void> {
+    this.logger.debug('Skipping lastIngestion timestamp update (not yet implemented safely)', {
+      codebaseName,
+      timestamp,
+    });
+  }
+
   /**
-     * Update the lastIngestion timestamp for all chunks in a codebase
-     * This ensures the codebase metadata reflects when it was last scanned
-     */
-    /**
-       * Update the lastIngestion timestamp for all chunks in a codebase
-       * This ensures the codebase metadata reflects when it was last scanned
-       * 
-       * Note: Due to LanceDB limitations, we cannot update rows in place.
-       * This method is currently disabled to prevent crashes.
-       * The timestamp will only be updated when new chunks are added.
-       */
-      private async updateLastIngestionTimestamp(
-        codebaseName: string,
-        timestamp: string
-      ): Promise<void> {
-        // TODO: Implement safe timestamp update when LanceDB supports row updates
-        // For now, skip this to avoid crashes
-        this.logger.debug('Skipping lastIngestion timestamp update (not yet implemented safely)', {
-          codebaseName,
-          timestamp,
-        });
-      }
-      /**
-       * Write or update metadata for a codebase after successful ingestion
-       */
-      private async writeMetadata(
-        codebaseName: string,
-        codebasePath: string,
-        chunkCount: number,
-        fileCount: number,
-        languageStats: Map<string, { fileCount: number; chunkCount: number }>,
-        ingestionTimestamp: string
-      ): Promise<void> {
+   * Write or update metadata for a codebase after successful ingestion
+   */
+  private async writeMetadata(
+    codebaseName: string,
+    codebasePath: string,
+    chunkCount: number,
+    fileCount: number,
+    languageStats: Map<string, { fileCount: number; chunkCount: number }>,
+    ingestionTimestamp: string
+  ): Promise<void> {
         try {
           // Get existing metadata to preserve createdAt
           const existingMetadata = await this.lanceClient.getMetadata(codebaseName);

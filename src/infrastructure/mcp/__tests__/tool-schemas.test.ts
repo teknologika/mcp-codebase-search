@@ -13,6 +13,8 @@ import {
   SEARCH_CODEBASES_SCHEMA,
   GET_CODEBASE_STATS_SCHEMA,
   OPEN_CODEBASE_MANAGER_SCHEMA,
+  UPDATE_CODEBASE_SCAN_SCHEMA,
+  GET_CHUNK_CONTENT_SCHEMA,
   ALL_TOOL_SCHEMAS,
 } from '../tool-schemas.js';
 
@@ -126,6 +128,11 @@ describe('MCP Tool Schemas', () => {
         maxResults: 25,
       };
       expect(validate(input)).toBe(true);
+    });
+
+    it('should reject invalid codebase names', () => {
+      const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.inputSchema);
+      expect(validate({ query: 'test', codebaseName: 'invalid name!' })).toBe(false);
     });
 
     it('should reject empty query', () => {
@@ -317,6 +324,32 @@ describe('MCP Tool Schemas', () => {
         sizeBytes: 50000,
       };
       expect(validate(output)).toBe(false);
+    });
+  });
+
+  describe('UPDATE_CODEBASE_SCAN_SCHEMA', () => {
+    it('should validate input with verbose mode enabled', () => {
+      const validate = ajv.compile(UPDATE_CODEBASE_SCAN_SCHEMA.inputSchema);
+      expect(validate({ name: 'my-project', verbose: true })).toBe(true);
+    });
+
+    it('should reject non-boolean verbose values', () => {
+      const validate = ajv.compile(UPDATE_CODEBASE_SCAN_SCHEMA.inputSchema);
+      expect(validate({ name: 'my-project', verbose: 'yes' })).toBe(false);
+    });
+  });
+
+  describe('GET_CHUNK_CONTENT_SCHEMA', () => {
+    it('should reject invalid codebase names', () => {
+      const validate = ajv.compile(GET_CHUNK_CONTENT_SCHEMA.inputSchema);
+      expect(
+        validate({
+          codebaseName: 'invalid name!',
+          filePath: 'src/test.ts',
+          startLine: 1,
+          endLine: 10,
+        })
+      ).toBe(false);
     });
   });
 

@@ -93,6 +93,7 @@ export interface CodebaseMetadata {
   chunkCount: number;
   fileCount: number;
   lastIngestion: string; // ISO 8601 timestamp
+  lastScanAge?: number; // Seconds since last ingestion
   languages: string[];
   createdAt?: string; // ISO 8601 timestamp - when first ingested
   lastModified?: string; // ISO 8601 timestamp - last file modification in codebase
@@ -218,4 +219,7 @@ export interface RescanResult {
   chunksAdded: number;
   chunksDeleted: number;
   durationMs: number;
+  addedFilePaths?: string[];
+  modifiedFilePaths?: string[];
+  deletedFilePaths?: string[];
 }

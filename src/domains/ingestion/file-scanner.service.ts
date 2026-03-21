@@ -74,6 +74,16 @@ export class FileScannerService {
     'obj', // C#
   ]);
 
+  // Files to always skip, regardless of gitignore
+  private readonly ALWAYS_SKIP_FILES = new Set([
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
+    'composer.lock',
+    'Gemfile.lock',
+    'Cargo.lock',
+  ]);
+
   constructor() {
     this.languageDetection = new LanguageDetectionService();
   }
@@ -175,6 +185,12 @@ export class FileScannerService {
       if (entry.isDirectory() && this.ALWAYS_SKIP_DIRS.has(entry.name)) {
         statistics.skippedByGitignore++;
         logger.debug('Skipping excluded directory', { path: relativePath, reason: 'always-skip-list' });
+        continue;
+      }
+
+      if (entry.isFile() && this.ALWAYS_SKIP_FILES.has(entry.name)) {
+        statistics.skippedByGitignore++;
+        logger.debug('Skipping excluded file', { path: relativePath, reason: 'always-skip-list' });
         continue;
       }
 
