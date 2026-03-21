@@ -114,7 +114,7 @@ export class SearchService {
     });
 
     try {
-      logger.info('Executing search', {
+      logger.debug('Executing search', {
         query: params.query.substring(0, 100),
         codebaseName: params.codebaseName,
         language: params.language,
@@ -125,7 +125,7 @@ export class SearchService {
       const cachedResults = this.getCachedResults(params);
       if (cachedResults) {
         const queryTime = timer.end();
-        logger.info('Returning cached search results', {
+        logger.debug('Returning cached search results', {
           resultCount: cachedResults.results.length,
           queryTime,
         });
@@ -224,7 +224,7 @@ export class SearchService {
             );
             
             if (similarityScore !== originalScore) {
-              logger.info('Applied name boost', {
+              logger.debug('Applied name boost', {
                 filePath: row.filePath,
                 originalScore: originalScore.toFixed(4),
                 boostedScore: similarityScore.toFixed(4),
@@ -273,7 +273,7 @@ export class SearchService {
       // Cache the results
       this.setCachedResults(params, results);
 
-      logger.info('Search completed successfully', {
+      logger.debug('Search completed successfully', {
         resultCount: limitedResults.length,
         queryTime,
       });

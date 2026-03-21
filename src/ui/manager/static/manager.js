@@ -181,6 +181,15 @@ function selectCurrentFolder() {
         const pathInput = document.getElementById('pathInput');
         pathInput.value = currentBrowsePath;
         closeFolderBrowserModal();
+
+        // Pre-populate name from folder name if name field is still empty
+        const nameInput = document.getElementById('codebaseName');
+        if (nameInput && !nameInput.value.trim()) {
+            const folderName = currentBrowsePath.split('/').filter(Boolean).pop() || '';
+            if (folderName) {
+                nameInput.value = normalizeCodebaseName(folderName);
+            }
+        }
     }
 }
 
@@ -263,6 +272,20 @@ function displayName(name) {
 document.addEventListener('DOMContentLoaded', () => {
     // Removed auto-normalization to allow users to type freely
     // Server will normalize the name when form is submitted
+
+    // Pre-populate name from manually typed path on blur
+    const pathInput = document.getElementById('pathInput');
+    const nameInput = document.getElementById('codebaseName');
+    if (pathInput && nameInput) {
+        pathInput.addEventListener('blur', () => {
+            if (!nameInput.value.trim() && pathInput.value.trim()) {
+                const folderName = pathInput.value.trim().split('/').filter(Boolean).pop() || '';
+                if (folderName) {
+                    nameInput.value = normalizeCodebaseName(folderName);
+                }
+            }
+        });
+    }
 });
 
 // Ingestion form submission with real-time progress

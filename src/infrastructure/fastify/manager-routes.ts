@@ -266,7 +266,7 @@ export async function registerManagerRoutes(
           name: normalizedName, 
           path, 
           config,
-          respectGitignore: respectGitignore === 'true'
+          respectGitignore: respectGitignore !== 'false'
         },
         (phase: string, current: number, total: number) => {
           const job = ingestionJobs.get(jobId);
