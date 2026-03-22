@@ -143,8 +143,12 @@ Prevent duplicate implementations and "wrong file" edits by making **codebase-se
 ## Tools you MUST use for codebase discovery
 - `list_codebases`
 - `search_codebases`
-- `get_chunk_content`
 - `get_codebase_stats`
+- `get_chunk_content`
+- `get_file_content`
+- `get_adjacent_chunks`
+- `list_files`
+- `update_codebase_scan`
 
 After updates run `update_codebase_scan` to refresh the index.
 
@@ -171,9 +175,10 @@ Once configured, your AI assistant can use these tools:
 - **get_codebase_stats** — Detailed statistics for a codebase
 - **get_chunk_content** — Retrieve specific code chunks by line range
 - **get_file_content** — Retrieve complete file content
+- **get_adjacent_chunks** — Retrieve surrounding context for a chunk
 - **list_files** — List all indexed files in a codebase
 - **update_codebase_scan** — Incrementally refresh the index after code changes
-- **open_codebase_manager** — Launch the Manager UI in your browser
+- **open_codebase_manager** — Launch the Manager UI in your browser on your behalf
 
 ### 5. (Optional) Explore the Manager UI
 
@@ -290,12 +295,11 @@ Performs semantic search across indexed codebases.
   "language": "typescript",
   "maxResults": 10,
   "includeContent": false,
-  "excludeTests": false,
-  "excludeLibraries": false
+  "topContentResults": 3
 }
 ```
 
-All fields except `query` are optional. Set `includeContent: true` to include full source code in results.
+All fields except `query` are optional. Set `includeContent: true` to include full source code in every result, or use `topContentResults` to include full source code for only the best matches.
 
 **Output:**
 ```json
@@ -316,7 +320,7 @@ All fields except `query` are optional. Set `includeContent: true` to include fu
 }
 ```
 
-`staleWarning` appears when the index is more than 10 minutes old. Content is excluded by default — use `get_chunk_content` or `get_file_content` to read source code.
+`staleWarning` appears when the index is more than 10 minutes old. Content is excluded by default, but `includeContent` and `topContentResults` can include it in the search response.
 
 ##### `get_chunk_content`
 
@@ -369,6 +373,49 @@ Retrieves the complete content of an indexed file.
   "content": "// full file content...",
   "chunkCount": 8,
   "totalLines": 245
+}
+```
+
+##### `get_adjacent_chunks`
+
+Retrieves the chunks immediately before and after a specific chunk in a file. Use this when a search result has a split chunk type like `method_part_2` or `class_part_5` and you want surrounding context without fetching the entire file.
+
+**Input:**
+```json
+{
+  "codebaseName": "my-project",
+  "filePath": "src/auth/authenticate.ts",
+  "startLine": 15,
+  "endLine": 45,
+  "before": 1,
+  "after": 1
+}
+```
+
+**Output:**
+```json
+{
+  "before": [
+    {
+      "startLine": 1,
+      "endLine": 14,
+      "chunkType": "function",
+      "content": "..."
+    }
+  ],
+  "reference": {
+    "startLine": 15,
+    "endLine": 45,
+    "chunkType": "method"
+  },
+  "after": [
+    {
+      "startLine": 46,
+      "endLine": 60,
+      "chunkType": "method",
+      "content": "..."
+    }
+  ]
 }
 ```
 

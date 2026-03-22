@@ -66,6 +66,8 @@ Performs semantic search across indexed codebases.
   codebaseName?: string;      // Optional: Filter by codebase
   language?: string;          // Optional: Filter by language (enum)
   maxResults?: number;        // Optional: Max results (1-200, default: 50)
+  includeContent?: boolean;   // Optional: Include full source for all results
+  topContentResults?: number; // Optional: Include full source for the top N results
 }
 ```
 
@@ -78,12 +80,13 @@ Performs semantic search across indexed codebases.
     endLine: number;          // 1-indexed
     language: string;
     chunkType: string;        // function | class | method | interface | property | field
-    content: string;
     similarityScore: number;  // 0-1
-    codebaseName: string;
+    content?: string;
+    codebaseName?: string;
   }>;
   totalResults: number;
   queryTime: number;          // milliseconds
+  staleWarning?: string;
 }
 ```
 
@@ -96,7 +99,9 @@ const input = {
   query: 'authentication function',
   codebaseName: 'my-project',
   language: 'typescript',
-  maxResults: 25
+  maxResults: 25,
+  includeContent: false,
+  topContentResults: 3
 };
 
 // Expected output
@@ -178,7 +183,128 @@ const output = {
 };
 ```
 
-### 4. `open_codebase_manager`
+### 4. `get_file_content`
+
+Retrieves the complete content of an indexed file.
+
+**Input**:
+```typescript
+{
+  codebaseName: string;
+  filePath: string;
+}
+```
+
+**Output**:
+```typescript
+{
+  codebaseName: string;
+  filePath: string;
+  language: string;
+  content: string;
+  chunkCount: number;
+  totalLines: number;
+}
+```
+
+### 5. `list_files`
+
+Lists all indexed files in a codebase with metadata.
+
+**Input**:
+```typescript
+{
+  codebaseName: string;
+}
+```
+
+**Output**:
+```typescript
+{
+  files: Array<{
+    filePath: string;
+    language: string;
+    chunkCount: number;
+    lastIngestion: string;
+    sizeBytes: number;
+    isTestFile: boolean;
+    isLibraryFile: boolean;
+  }>;
+  codebaseName: string;
+  totalFiles: number;
+}
+```
+
+### 6. `update_codebase_scan`
+
+Incrementally refreshes a codebase index after file changes.
+
+**Input**:
+```typescript
+{
+  name: string;
+  verbose?: boolean;
+}
+```
+
+**Output**:
+```typescript
+{
+  name: string;
+  path: string;
+  filesScanned: number;
+  filesAdded: number;
+  filesModified: number;
+  filesDeleted: number;
+  filesUnchanged: number;
+  chunksAdded: number;
+  chunksDeleted: number;
+  cacheCleared: boolean;
+  durationMs: number;
+  message: string;
+}
+```
+
+### 7. `get_adjacent_chunks`
+
+Retrieves the chunks immediately before and after a specific chunk in a file.
+
+**Input**:
+```typescript
+{
+  codebaseName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  before?: number;
+  after?: number;
+}
+```
+
+**Output**:
+```typescript
+{
+  before: Array<{
+    startLine: number;
+    endLine: number;
+    chunkType: string;
+    content: string;
+  }>;
+  reference: {
+    startLine: number;
+    endLine: number;
+    chunkType: string;
+  } | null;
+  after: Array<{
+    startLine: number;
+    endLine: number;
+    chunkType: string;
+    content: string;
+  }>;
+}
+```
+
+### 8. `open_codebase_manager`
 
 Opens the web-based codebase manager UI in the default browser.
 
