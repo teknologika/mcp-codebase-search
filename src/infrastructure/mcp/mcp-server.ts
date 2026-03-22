@@ -219,9 +219,15 @@ export class MCPServer {
       if (includeThisContent) {
         return result;
       }
-      // Strip content and codebaseName for metadata-only results
-      const { content, codebaseName, ...rest } = result;
-      return rest;
+      // Return the metadata-only shape expected by the tool schema.
+      return {
+        filePath: result.filePath,
+        startLine: result.startLine,
+        endLine: result.endLine,
+        language: result.language,
+        chunkType: result.chunkType,
+        similarityScore: result.similarityScore,
+      };
     });
 
     const payload = {

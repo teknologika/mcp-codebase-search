@@ -450,7 +450,7 @@ export class CodebaseService {
     }
 
     // Validate timestamp is a valid ISO 8601 format to prevent injection
-    if (!/^\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+$/.test(timestamp)) {
+    if (!/^\d{4}-\d{2}-\d{2}T[\d:.Z+-]+$/.test(timestamp)) {
       throw new CodebaseError(`Invalid timestamp format: '${timestamp}'`);
     }
 
