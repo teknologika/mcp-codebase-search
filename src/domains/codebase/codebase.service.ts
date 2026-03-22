@@ -445,6 +445,15 @@ export class CodebaseService {
    * Delete chunks from a specific ingestion timestamp
    */
   async deleteChunkSet(codebaseName: string, timestamp: string): Promise<number> {
+    if (!timestamp || timestamp.trim() === '') {
+      throw new CodebaseError('Timestamp cannot be empty');
+    }
+
+    // Validate timestamp is a valid ISO 8601 format to prevent injection
+    if (!/^\d{4}-\d{2}-\d{2}T[\d:.Z+\-]+$/.test(timestamp)) {
+      throw new CodebaseError(`Invalid timestamp format: '${timestamp}'`);
+    }
+
     try {
       logger.debug('Deleting chunk set', { codebaseName, timestamp });
 
@@ -767,7 +776,8 @@ export class CodebaseService {
         }, fuzzyRows[0]);
 
         const actualStartLine = Number(row.startLine || 0);
-        lineNumberDrift = startLine - actualStartLine;
+        // Report drift as a magnitude so callers can compare how far the chunk moved.
+        lineNumberDrift = Math.abs(startLine - actualStartLine);
       }
 
       logger.debug('Chunk content retrieved successfully', {
@@ -795,6 +805,94 @@ export class CodebaseService {
       );
       throw new CodebaseError(
         `Failed to get chunk content for ${filePath}:${startLine}-${endLine} in codebase '${codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Get chunks immediately before and after a given line range in a file.
+   * Useful for navigating split chunks (method_part_N, class_part_N).
+   */
+  async getAdjacentChunks(
+    codebaseName: string,
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    before: number = 1,
+    after: number = 1
+  ): Promise<{
+    before: Array<{ startLine: number; endLine: number; chunkType: string; content: string }>;
+    reference: { startLine: number; endLine: number; chunkType: string } | null;
+    after: Array<{ startLine: number; endLine: number; chunkType: string; content: string }>;
+  }> {
+    try {
+      const table = await this.lanceClient.getOrCreateTable(codebaseName);
+      if (!table) {
+        throw new CodebaseError(`Codebase '${codebaseName}' not found`);
+      }
+
+      const escapedFilePath = filePath.replace(/'/g, "''");
+
+      // Get all chunks for this file, ordered by startLine
+      const rows = await table
+        .query()
+        .where(`\`filePath\` = '${escapedFilePath}'`)
+        .toArray();
+
+      // Sort by startLine ascending
+      rows.sort((a: any, b: any) => (a.startLine || 0) - (b.startLine || 0));
+
+      // Find the index of the reference chunk (closest match to startLine)
+      let refIndex = -1;
+      let minDistance = Infinity;
+      for (let i = 0; i < rows.length; i++) {
+        const dist = Math.abs((rows[i].startLine || 0) - startLine);
+        if (dist < minDistance) {
+          minDistance = dist;
+          refIndex = i;
+        }
+      }
+
+      if (refIndex === -1) {
+        return { before: [], reference: null, after: [] };
+      }
+
+      const toChunk = (row: any) => ({
+        startLine: row.startLine || 0,
+        endLine: row.endLine || 0,
+        chunkType: row.chunkType || 'unknown',
+        content: row.content || '',
+      });
+
+      const beforeChunks = rows
+        .slice(Math.max(0, refIndex - before), refIndex)
+        .map(toChunk);
+
+      const afterChunks = rows
+        .slice(refIndex + 1, refIndex + 1 + after)
+        .map(toChunk);
+
+      const ref = rows[refIndex];
+
+      return {
+        before: beforeChunks,
+        reference: {
+          startLine: ref.startLine || 0,
+          endLine: ref.endLine || 0,
+          chunkType: ref.chunkType || 'unknown',
+        },
+        after: afterChunks,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to get adjacent chunks',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName, filePath, startLine, endLine }
+      );
+      throw new CodebaseError(
+        `Failed to get adjacent chunks for ${filePath}:${startLine}-${endLine}: ${errorMessage}`,
         error
       );
     }

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Staleness warnings**: `search_codebases` and `get_chunk_content` now include a `staleWarning` field when the index is more than 10 minutes old, with the exact `update_codebase_scan` call needed to refresh
+- **Expanded MCP tool surface**: `search_codebases` now supports `topContentResults`, and the MCP server advertises `get_file_content` and `get_adjacent_chunks` alongside the existing tools
 - **`lastScanAge` in `list_codebases`**: Each codebase entry now includes `lastScanAge` (seconds since last scan) so callers can assess index freshness without running a search
 - **`get_chunk_content` fuzzy matching**: When an exact line-range match fails (e.g. after incremental rescans shift line numbers), a ±5 line fuzzy search is used automatically. The response includes `lineNumberDrift` indicating how much the chunk shifted
 - **`get_chunk_content` path error clarity**: Absolute paths that cannot be normalised now throw a descriptive error instead of silently falling back to an always-failing query

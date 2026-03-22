@@ -66,19 +66,19 @@ describe('FileScannerService', () => {
       await fs.writeFile(path.join(testDir, 'code.ts'), 'content');
       await fs.writeFile(path.join(testDir, 'README.md'), 'content');
       await fs.writeFile(path.join(testDir, 'config.json'), 'content');
-      await fs.writeFile(path.join(testDir, 'script.py'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
 
       const { files, statistics } = await service.scanDirectory(testDir);
 
       expect(statistics.totalFiles).toBe(4);
-      expect(statistics.supportedFiles).toBe(2); // .ts and .py
-      expect(statistics.unsupportedFiles).toBe(2); // .md and .json
+      expect(statistics.supportedFiles).toBe(3); // .ts, .md, and .json
+      expect(statistics.unsupportedFiles).toBe(1); // .xml
 
       const supported = files.filter(f => f.supported);
       const unsupported = files.filter(f => !f.supported);
 
-      expect(supported).toHaveLength(2);
-      expect(unsupported).toHaveLength(2);
+      expect(supported).toHaveLength(3);
+      expect(unsupported).toHaveLength(1);
     });
 
     it('should track unsupported files by extension', async () => {
@@ -86,12 +86,14 @@ describe('FileScannerService', () => {
       await fs.writeFile(path.join(testDir, 'CHANGELOG.md'), 'content');
       await fs.writeFile(path.join(testDir, 'config.json'), 'content');
       await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
+      await fs.writeFile(path.join(testDir, 'unknown.foo'), 'content');
+      await fs.writeFile(path.join(testDir, 'Makefile'), 'content');
 
       const { statistics } = await service.scanDirectory(testDir);
 
-      expect(statistics.unsupportedByExtension.get('.md')).toBe(2);
-      expect(statistics.unsupportedByExtension.get('.json')).toBe(1);
       expect(statistics.unsupportedByExtension.get('.xml')).toBe(1);
+      expect(statistics.unsupportedByExtension.get('.foo')).toBe(1);
+      expect(statistics.unsupportedByExtension.get('(no extension)')).toBe(1);
     });
 
     it('should skip hidden directories by default', async () => {
@@ -140,6 +142,23 @@ describe('FileScannerService', () => {
       expect(files).toHaveLength(1);
       expect(files[0].relativePath).toBe('app.ts');
       expect(statistics.skippedByGitignore).toBeGreaterThan(0);
+    });
+
+    it('should always skip lock files while keeping package.json', async () => {
+      await fs.writeFile(path.join(testDir, 'package-lock.json'), '{}');
+      await fs.writeFile(path.join(testDir, 'yarn.lock'), '');
+      await fs.writeFile(path.join(testDir, 'pnpm-lock.yaml'), '');
+      await fs.writeFile(path.join(testDir, 'package.json'), '{"name":"test"}');
+
+      const { files, statistics } = await service.scanDirectory(testDir);
+
+      const relativePaths = files.map(file => file.relativePath);
+      expect(relativePaths).toContain('package.json');
+      expect(relativePaths).not.toContain('package-lock.json');
+      expect(relativePaths).not.toContain('yarn.lock');
+      expect(relativePaths).not.toContain('pnpm-lock.yaml');
+      expect(files).toHaveLength(1);
+      expect(statistics.totalFiles).toBe(1);
     });
 
     it('should scan without .gitignore when respectGitignore is false', async () => {
@@ -208,7 +227,7 @@ describe('FileScannerService', () => {
     });
 
     it('should set language to null for unsupported files', async () => {
-      await fs.writeFile(path.join(testDir, 'README.md'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
 
@@ -218,7 +237,7 @@ describe('FileScannerService', () => {
 
     it('should handle files without extensions', async () => {
       await fs.writeFile(path.join(testDir, 'Makefile'), 'content');
-      await fs.writeFile(path.join(testDir, 'Dockerfile'), 'content');
+      await fs.writeFile(path.join(testDir, 'Procfile'), 'content');
 
       const { files, statistics } = await service.scanDirectory(testDir);
 
@@ -233,7 +252,7 @@ describe('FileScannerService', () => {
 
     it('should track files without extensions in statistics', async () => {
       await fs.writeFile(path.join(testDir, 'Makefile'), 'content');
-      await fs.writeFile(path.join(testDir, 'LICENSE'), 'content');
+      await fs.writeFile(path.join(testDir, 'Procfile'), 'content');
 
       const { statistics } = await service.scanDirectory(testDir);
 
@@ -246,17 +265,18 @@ describe('FileScannerService', () => {
       await fs.writeFile(path.join(testDir, 'app.ts'), 'content');
       await fs.writeFile(path.join(testDir, 'README.md'), 'content');
       await fs.writeFile(path.join(testDir, 'script.py'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
       const supported = service.getSupportedFiles(files);
 
-      expect(supported).toHaveLength(2);
+      expect(supported).toHaveLength(3);
       expect(supported.every(f => f.supported)).toBe(true);
     });
 
     it('should return empty array when no supported files exist', async () => {
-      await fs.writeFile(path.join(testDir, 'README.md'), 'content');
-      await fs.writeFile(path.join(testDir, 'config.json'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
+      await fs.writeFile(path.join(testDir, 'notes.foo'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
       const supported = service.getSupportedFiles(files);
@@ -268,8 +288,8 @@ describe('FileScannerService', () => {
   describe('getUnsupportedFiles', () => {
     it('should filter and return only unsupported files', async () => {
       await fs.writeFile(path.join(testDir, 'app.ts'), 'content');
-      await fs.writeFile(path.join(testDir, 'README.md'), 'content');
-      await fs.writeFile(path.join(testDir, 'config.json'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
+      await fs.writeFile(path.join(testDir, 'notes.foo'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
       const unsupported = service.getUnsupportedFiles(files);
@@ -294,19 +314,19 @@ describe('FileScannerService', () => {
       await fs.writeFile(path.join(testDir, 'app.ts'), 'content');
       await fs.writeFile(path.join(testDir, 'utils.ts'), 'content');
       await fs.writeFile(path.join(testDir, 'script.py'), 'content');
-      await fs.writeFile(path.join(testDir, 'Main.java'), 'content');
+      await fs.writeFile(path.join(testDir, 'README.md'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
       const grouped = service.groupByLanguage(files);
 
       expect(grouped.get('typescript')).toHaveLength(2);
       expect(grouped.get('python')).toHaveLength(1);
-      expect(grouped.get('java')).toHaveLength(1);
+      expect(grouped.get('markdown')).toHaveLength(1);
     });
 
     it('should not include unsupported files in grouping', async () => {
       await fs.writeFile(path.join(testDir, 'app.ts'), 'content');
-      await fs.writeFile(path.join(testDir, 'README.md'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
       const grouped = service.groupByLanguage(files);
@@ -317,7 +337,7 @@ describe('FileScannerService', () => {
     });
 
     it('should return empty map when no supported files exist', async () => {
-      await fs.writeFile(path.join(testDir, 'README.md'), 'content');
+      await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
       const grouped = service.groupByLanguage(files);

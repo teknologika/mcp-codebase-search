@@ -48,16 +48,23 @@ describe('LanguageDetectionService', () => {
       expect(service.detectLanguage('/src/utils/helpers.py')).toBe('python');
     });
 
-    it('should return null for unsupported extensions', () => {
-      expect(service.detectLanguage('README.md')).toBeNull();
-      expect(service.detectLanguage('config.json')).toBeNull();
-      expect(service.detectLanguage('styles.css')).toBeNull();
-      expect(service.detectLanguage('data.xml')).toBeNull();
+    it('should detect markdown, json, css, and yaml files', () => {
+      expect(service.detectLanguage('README.md')).toBe('markdown');
+      expect(service.detectLanguage('config.json')).toBe('json');
+      expect(service.detectLanguage('styles.css')).toBe('css');
+      expect(service.detectLanguage('config.yaml')).toBe('yaml');
     });
 
-    it('should return null for files without extensions', () => {
+    it('should detect filename-based formats', () => {
+      expect(service.detectLanguage('Dockerfile')).toBe('dockerfile');
+      expect(service.detectLanguage('package.json')).toBe('json');
+      expect(service.detectLanguage('CHANGELOG.md')).toBe('markdown');
+    });
+
+    it('should return null for unsupported files', () => {
+      expect(service.detectLanguage('data.xml')).toBeNull();
+      expect(service.detectLanguage('notes.foo')).toBeNull();
       expect(service.detectLanguage('Makefile')).toBeNull();
-      expect(service.detectLanguage('Dockerfile')).toBeNull();
     });
 
     it('should handle case-insensitive extensions', () => {
@@ -81,12 +88,16 @@ describe('LanguageDetectionService', () => {
       expect(service.isSupported('file.ts')).toBe(true);
       expect(service.isSupported('file.tsx')).toBe(true);
       expect(service.isSupported('file.py')).toBe(true);
+      expect(service.isSupported('README.md')).toBe(true);
+      expect(service.isSupported('config.json')).toBe(true);
+      expect(service.isSupported('styles.css')).toBe(true);
+      expect(service.isSupported('config.yaml')).toBe(true);
+      expect(service.isSupported('Dockerfile')).toBe(true);
     });
 
     it('should return false for unsupported extensions', () => {
-      expect(service.isSupported('file.md')).toBe(false);
-      expect(service.isSupported('file.json')).toBe(false);
-      expect(service.isSupported('file.txt')).toBe(false);
+      expect(service.isSupported('file.xml')).toBe(false);
+      expect(service.isSupported('file.foo')).toBe(false);
       expect(service.isSupported('Makefile')).toBe(false);
     });
   });
@@ -116,26 +127,18 @@ describe('LanguageDetectionService', () => {
   describe('getSupportedExtensions', () => {
     it('should return all supported extensions', () => {
       const extensions = service.getSupportedExtensions();
-      expect(extensions).toContain('.cs');
-      expect(extensions).toContain('.java');
-      expect(extensions).toContain('.js');
-      expect(extensions).toContain('.jsx');
-      expect(extensions).toContain('.ts');
-      expect(extensions).toContain('.tsx');
-      expect(extensions).toContain('.py');
-      expect(extensions).toHaveLength(7);
+      expect(extensions).toEqual(expect.arrayContaining(Object.keys(LANGUAGE_SUPPORT)));
+      expect(extensions).toHaveLength(Object.keys(LANGUAGE_SUPPORT).length);
     });
   });
 
   describe('getSupportedLanguages', () => {
     it('should return all supported languages without duplicates', () => {
       const languages = service.getSupportedLanguages();
-      expect(languages).toContain('csharp');
-      expect(languages).toContain('java');
-      expect(languages).toContain('javascript');
-      expect(languages).toContain('typescript');
-      expect(languages).toContain('python');
-      expect(languages).toHaveLength(5);
+      const uniqueLanguages = [...new Set(Object.values(LANGUAGE_SUPPORT))];
+
+      expect(languages).toEqual(expect.arrayContaining(uniqueLanguages));
+      expect(languages).toHaveLength(uniqueLanguages.length);
     });
 
     it('should not have duplicate languages', () => {
@@ -153,11 +156,18 @@ describe('LanguageDetectionService', () => {
       expect(result.extension).toBe('.cs');
     });
 
+    it('should classify filename-based files correctly', () => {
+      const result = service.classifyFile('Dockerfile');
+      expect(result.supported).toBe(true);
+      expect(result.language).toBe('dockerfile');
+      expect(result.extension).toBe('');
+    });
+
     it('should classify unsupported files correctly', () => {
-      const result = service.classifyFile('README.md');
+      const result = service.classifyFile('data.xml');
       expect(result.supported).toBe(false);
       expect(result.language).toBeNull();
-      expect(result.extension).toBe('.md');
+      expect(result.extension).toBe('.xml');
     });
 
     it('should handle files without extensions', () => {
@@ -184,6 +194,11 @@ describe('LanguageDetectionService', () => {
       expect(LANGUAGE_SUPPORT['.ts']).toBe('typescript');
       expect(LANGUAGE_SUPPORT['.tsx']).toBe('typescript');
       expect(LANGUAGE_SUPPORT['.py']).toBe('python');
+      expect(LANGUAGE_SUPPORT['.md']).toBe('markdown');
+      expect(LANGUAGE_SUPPORT['.json']).toBe('json');
+      expect(LANGUAGE_SUPPORT['.css']).toBe('css');
+      expect(LANGUAGE_SUPPORT['.yaml']).toBe('yaml');
+      expect(LANGUAGE_SUPPORT['.txt']).toBe('plaintext');
     });
   });
 

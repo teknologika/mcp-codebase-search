@@ -88,6 +88,8 @@ export class FastifyServer {
     // Register security headers with Helmet - relaxed for localhost development
     this.fastify.register(helmet, {
       contentSecurityPolicy: false, // Disable CSP entirely for localhost
+      crossOriginResourcePolicy: false, // Disable CORP to allow static assets on localhost
+      crossOriginOpenerPolicy: false, // Disable COOP to avoid Safari TLS issues
       hsts: false, // Disable HSTS to avoid Safari issues with localhost
     });
 
@@ -206,7 +208,17 @@ export class FastifyServer {
     });
 
     // Shutdown endpoint
-    this.fastify.post('/api/shutdown', async (_request, reply) => {
+    this.fastify.post('/api/shutdown', async (request, reply) => {
+      const origin = request.headers.origin;
+      if (
+        origin &&
+        !origin.startsWith('http://localhost') &&
+        !origin.startsWith('http://127.0.0.1') &&
+        !origin.startsWith('http://[::1]')
+      ) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+
       // Send response before shutting down
       reply.send({ success: true, message: 'Server shutting down...' });
       

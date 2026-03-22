@@ -115,6 +115,13 @@ export const SEARCH_CODEBASES_SCHEMA = {
         description: 'Include full code content in results (default: false). Set to true only when you need the actual code.',
         default: false,
       },
+      topContentResults: {
+        type: 'number',
+        description: 'Include full code content for the top N results by similarity score (default: 0 = no content). More efficient than includeContent: true when you only need code for the best matches.',
+        minimum: 0,
+        maximum: 10,
+        default: 0,
+      },
     },
     required: ['query'],
     additionalProperties: false,
@@ -154,7 +161,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
             },
             content: {
               type: 'string',
-              description: 'The actual code content of the chunk (only included when includeContent=true)',
+              description: 'The actual code content of the chunk (included when includeContent=true or for the topContentResults matches)',
             },
             similarityScore: {
               type: 'number',
@@ -164,7 +171,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
             },
             codebaseName: {
               type: 'string',
-              description: 'Name of the codebase containing this chunk (only included when includeContent=true)',
+              description: 'Name of the codebase containing this chunk (included when includeContent=true or for the topContentResults matches)',
             },
           },
           required: [
@@ -668,6 +675,147 @@ export const GET_FILE_CONTENT_SCHEMA = {
 } as const;
 
 /**
+ * Schema for get_adjacent_chunks tool
+ *
+ * Retrieves chunks immediately before and after a given line range in a file.
+ * Use when a search result has a chunkType like "method_part_2" or "class_part_5"
+ * to retrieve surrounding context without fetching the entire file.
+ */
+export const GET_ADJACENT_CHUNKS_SCHEMA = {
+  name: 'get_adjacent_chunks',
+  description: 'Retrieve chunks immediately before and after a specific chunk in a file. Use when a search result has a split chunkType (e.g. "method_part_2", "class_part_5") to get surrounding context without fetching the entire file. Returns up to N chunks on each side ordered by line number.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the codebase',
+        minLength: 1,
+        pattern: '^[a-zA-Z0-9_-]{1,64}$',
+      },
+      filePath: {
+        type: 'string',
+        description: 'Relative file path of the chunk',
+        minLength: 1,
+      },
+      startLine: {
+        type: 'number',
+        description: 'Start line of the reference chunk (from search results)',
+        minimum: 1,
+      },
+      endLine: {
+        type: 'number',
+        description: 'End line of the reference chunk (from search results)',
+        minimum: 1,
+      },
+      before: {
+        type: 'number',
+        description: 'Number of chunks to return before this chunk (default: 1)',
+        minimum: 0,
+        maximum: 5,
+        default: 1,
+      },
+      after: {
+        type: 'number',
+        description: 'Number of chunks to return after this chunk (default: 1)',
+        minimum: 0,
+        maximum: 5,
+        default: 1,
+      },
+    },
+    required: ['codebaseName', 'filePath', 'startLine', 'endLine'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      before: {
+        type: 'array',
+        description: 'Chunks immediately before the reference chunk',
+        items: {
+          type: 'object',
+          properties: {
+            startLine: {
+              type: 'number',
+              description: 'Starting line number of the chunk',
+              minimum: 1,
+            },
+            endLine: {
+              type: 'number',
+              description: 'Ending line number of the chunk',
+              minimum: 1,
+            },
+            chunkType: {
+              type: 'string',
+              description: 'Type of code construct for the chunk',
+            },
+            content: {
+              type: 'string',
+              description: 'Chunk content',
+            },
+          },
+          required: ['startLine', 'endLine', 'chunkType', 'content'],
+          additionalProperties: false,
+        },
+      },
+      reference: {
+        type: ['object', 'null'],
+        description: 'The reference chunk that was used to locate adjacent chunks, or null if no matching chunk was found',
+        properties: {
+          startLine: {
+            type: 'number',
+            description: 'Starting line number of the chunk',
+            minimum: 1,
+          },
+          endLine: {
+            type: 'number',
+            description: 'Ending line number of the chunk',
+            minimum: 1,
+          },
+          chunkType: {
+            type: 'string',
+            description: 'Type of code construct for the chunk',
+          },
+        },
+        required: ['startLine', 'endLine', 'chunkType'],
+        additionalProperties: false,
+      },
+      after: {
+        type: 'array',
+        description: 'Chunks immediately after the reference chunk',
+        items: {
+          type: 'object',
+          properties: {
+            startLine: {
+              type: 'number',
+              description: 'Starting line number of the chunk',
+              minimum: 1,
+            },
+            endLine: {
+              type: 'number',
+              description: 'Ending line number of the chunk',
+              minimum: 1,
+            },
+            chunkType: {
+              type: 'string',
+              description: 'Type of code construct for the chunk',
+            },
+            content: {
+              type: 'string',
+              description: 'Chunk content',
+            },
+          },
+          required: ['startLine', 'endLine', 'chunkType', 'content'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['before', 'reference', 'after'],
+    additionalProperties: false,
+  },
+} as const;
+
+/**
  * All tool schemas exported as an array for easy registration
  */
 export const ALL_TOOL_SCHEMAS = [
@@ -679,6 +827,7 @@ export const ALL_TOOL_SCHEMAS = [
   UPDATE_CODEBASE_SCAN_SCHEMA,
   GET_CHUNK_CONTENT_SCHEMA,
   GET_FILE_CONTENT_SCHEMA,
+  GET_ADJACENT_CHUNKS_SCHEMA,
 ] as const;
 
 /**
@@ -708,6 +857,7 @@ export interface SearchCodebasesInput {
   language?: 'csharp' | 'java' | 'javascript' | 'typescript' | 'python';
   maxResults?: number;
   includeContent?: boolean;
+  topContentResults?: number;
 }
 
 export interface SearchCodebasesOutput {
@@ -717,9 +867,9 @@ export interface SearchCodebasesOutput {
     endLine: number;
     language: string;
     chunkType: string;
-    content: string;
     similarityScore: number;
-    codebaseName: string;
+    content?: string;
+    codebaseName?: string;
   }>;
   totalResults: number;
   queryTime: number;
@@ -830,4 +980,13 @@ export interface GetFileContentOutput {
   content: string;
   chunkCount: number;
   totalLines: number;
+}
+
+export interface GetAdjacentChunksInput {
+  codebaseName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  before?: number;
+  after?: number;
 }

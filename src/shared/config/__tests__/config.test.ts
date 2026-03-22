@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { randomUUID } from 'node:crypto';
 import {
   loadConfig,
   validateConfigObject,
@@ -25,7 +26,7 @@ describe('Configuration Management', () => {
     originalEnv = { ...process.env };
     
     // Create temp directory for test config files
-    const tempDir = join(tmpdir(), 'config-test-' + Date.now());
+    const tempDir = join(tmpdir(), `config-test-${process.pid}-${Date.now()}-${randomUUID()}`);
     mkdirSync(tempDir, { recursive: true });
     testConfigPath = join(tempDir, 'test-config.json');
   });
@@ -47,7 +48,8 @@ describe('Configuration Management', () => {
     it('should return default configuration when no config file or env vars provided', () => {
       const config = loadConfig();
       
-      expect(config).toEqual(DEFAULT_CONFIG);
+      expect(config).toMatchObject(DEFAULT_CONFIG);
+      expect(config.server.sessionSecret).toMatch(/^[0-9a-f]{64}$/);
       expect(config.server.port).toBe(8008);
       expect(config.ingestion.batchSize).toBe(100);
       expect(config.search.defaultMaxResults).toBe(50);
@@ -73,6 +75,7 @@ describe('Configuration Management', () => {
       expect(config.server.port).toBe(9000);
       expect(config.server.host).toBe('0.0.0.0');
       expect(config.logging.level).toBe('debug');
+      expect(config.server.sessionSecret).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('should override file config with environment variables', () => {
@@ -94,6 +97,7 @@ describe('Configuration Management', () => {
       expect(config.server.port).toBe(9999);
       expect(config.server.host).toBe('localhost'); // From file
       expect(config.logging.level).toBe('error'); // From env
+      expect(config.server.sessionSecret).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('should load all environment variables correctly', () => {
@@ -214,7 +218,8 @@ describe('Configuration Management', () => {
       
       // Defaults for missing fields
       expect(config.embedding).toEqual(DEFAULT_CONFIG.embedding);
-      expect(config.server).toEqual(DEFAULT_CONFIG.server);
+      expect(config.server).toMatchObject(DEFAULT_CONFIG.server);
+      expect(config.server.sessionSecret).toMatch(/^[0-9a-f]{64}$/);
       expect(config.mcp).toEqual(DEFAULT_CONFIG.mcp);
       expect(config.ingestion).toEqual(DEFAULT_CONFIG.ingestion);
       expect(config.search).toEqual(DEFAULT_CONFIG.search);

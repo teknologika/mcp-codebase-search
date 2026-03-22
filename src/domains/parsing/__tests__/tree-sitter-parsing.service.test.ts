@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TreeSitterParsingService } from '../tree-sitter-parsing.service.js';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, rm, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DEFAULT_CONFIG } from '../../../shared/config/config.js';
@@ -15,7 +15,7 @@ describe('TreeSitterParsingService', () => {
 
   beforeEach(async () => {
     service = new TreeSitterParsingService(DEFAULT_CONFIG);
-    testDir = join(tmpdir(), `tree-sitter-test-${Date.now()}`);
+    testDir = await mkdtemp(join(tmpdir(), 'tree-sitter-test-'));
     await mkdir(testDir, { recursive: true });
   });
 

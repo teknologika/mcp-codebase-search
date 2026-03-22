@@ -3,14 +3,16 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, rm, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { calculateFileHash, calculateFileHashes } from '../file-hash.js';
 
-const TEST_DIR = join(process.cwd(), '.test-file-hash');
-
 describe('FileHash', () => {
+  let TEST_DIR: string;
+
   beforeEach(async () => {
+    TEST_DIR = await mkdtemp(join(tmpdir(), 'file-hash-test-'));
     await mkdir(TEST_DIR, { recursive: true });
   });
 

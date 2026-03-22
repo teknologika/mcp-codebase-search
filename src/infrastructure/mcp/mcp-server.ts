@@ -32,10 +32,12 @@ import {
   UPDATE_CODEBASE_SCAN_SCHEMA,
   GET_CHUNK_CONTENT_SCHEMA,
   GET_FILE_CONTENT_SCHEMA,
+  GET_ADJACENT_CHUNKS_SCHEMA,
   type SearchCodebasesInput,
   type GetCodebaseStatsInput,
   type GetChunkContentInput,
   type GetFileContentInput,
+  type GetAdjacentChunksInput,
 } from './tool-schemas.js';
 
 // Silent logger for MCP server - no logging to avoid interfering with stdio JSON-RPC
@@ -145,6 +147,8 @@ export class MCPServer {
             return await this.handleGetChunkContent(args);
           case 'get_file_content':
             return await this.handleGetFileContent(args);
+          case 'get_adjacent_chunks':
+            return await this.handleGetAdjacentChunks(args);
           default:
             throw this.createError(
               MCPErrorCode.TOOL_NOT_FOUND,
@@ -207,34 +211,23 @@ export class MCPServer {
       ? await this.getStaleWarning(input.codebaseName)
       : null;
 
-    // If includeContent is false (default), remove content and codebaseName from results
-    if (!input.includeContent) {
-      const filteredResults = results.results.map(result => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { content, codebaseName, ...rest } = result;
-        return rest;
-      });
-      
-      // Format response with filtered results
-      const payload = {
-        results: filteredResults,
-        totalResults: results.totalResults,
-        queryTime: results.queryTime,
-        ...(staleWarning ? { staleWarning } : {}),
-      };
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(payload, null, 2),
-          },
-        ],
-      };
-    }
+    const topN = input.topContentResults ?? 0;
+    const useIncludeContent = input.includeContent ?? false;
 
-    // Format response with full results
+    const formattedResults = results.results.map((result, index) => {
+      const includeThisContent = useIncludeContent || index < topN;
+      if (includeThisContent) {
+        return result;
+      }
+      // Strip content and codebaseName for metadata-only results
+      const { content, codebaseName, ...rest } = result;
+      return rest;
+    });
+
     const payload = {
-      ...results,
+      results: formattedResults,
+      totalResults: results.totalResults,
+      queryTime: results.queryTime,
       ...(staleWarning ? { staleWarning } : {}),
     };
     return {
@@ -514,6 +507,35 @@ export class MCPServer {
       throw this.createError(
         MCPErrorCode.INTERNAL_ERROR,
         `Failed to get file content: ${error instanceof Error ? error.message : String(error)}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Handle get_adjacent_chunks tool call
+   */
+  private async handleGetAdjacentChunks(args: unknown) {
+    this.validateInput(GET_ADJACENT_CHUNKS_SCHEMA.inputSchema, args);
+    const input = args as GetAdjacentChunksInput;
+
+    try {
+      const result = await this.codebaseService.getAdjacentChunks(
+        input.codebaseName,
+        input.filePath,
+        input.startLine,
+        input.endLine,
+        input.before ?? 1,
+        input.after ?? 1
+      );
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      throw this.createError(
+        MCPErrorCode.INTERNAL_ERROR,
+        `Failed to get adjacent chunks: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
     }

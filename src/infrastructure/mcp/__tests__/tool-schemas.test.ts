@@ -15,6 +15,7 @@ import {
   OPEN_CODEBASE_MANAGER_SCHEMA,
   UPDATE_CODEBASE_SCAN_SCHEMA,
   GET_CHUNK_CONTENT_SCHEMA,
+  GET_ADJACENT_CHUNKS_SCHEMA,
   ALL_TOOL_SCHEMAS,
 } from '../tool-schemas.js';
 
@@ -126,6 +127,7 @@ describe('MCP Tool Schemas', () => {
         codebaseName: 'my-project',
         language: 'typescript',
         maxResults: 25,
+        topContentResults: 2,
       };
       expect(validate(input)).toBe(true);
     });
@@ -165,6 +167,25 @@ describe('MCP Tool Schemas', () => {
         maxResults: 201,
       };
       expect(validate(input)).toBe(false);
+    });
+
+    it('should validate metadata-only search output', () => {
+      const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
+      const output = {
+        results: [
+          {
+            filePath: 'src/auth.ts',
+            startLine: 10,
+            endLine: 25,
+            language: 'typescript',
+            chunkType: 'function',
+            similarityScore: 0.95,
+          },
+        ],
+        totalResults: 1,
+        queryTime: 45,
+      };
+      expect(validate(output)).toBe(true);
     });
 
     it('should validate correct output', () => {
@@ -353,6 +374,61 @@ describe('MCP Tool Schemas', () => {
     });
   });
 
+  describe('GET_ADJACENT_CHUNKS_SCHEMA', () => {
+    it('should validate input with default bounds', () => {
+      const validate = ajv.compile(GET_ADJACENT_CHUNKS_SCHEMA.inputSchema);
+      expect(
+        validate({
+          codebaseName: 'my-project',
+          filePath: 'src/test.ts',
+          startLine: 10,
+          endLine: 20,
+        })
+      ).toBe(true);
+    });
+
+    it('should reject invalid file paths', () => {
+      const validate = ajv.compile(GET_ADJACENT_CHUNKS_SCHEMA.inputSchema);
+      expect(
+        validate({
+          codebaseName: 'my-project',
+          filePath: '',
+          startLine: 10,
+          endLine: 20,
+        })
+      ).toBe(false);
+    });
+
+    it('should validate adjacent chunks output', () => {
+      const validate = ajv.compile(GET_ADJACENT_CHUNKS_SCHEMA.outputSchema);
+      expect(
+        validate({
+          before: [
+            {
+              startLine: 1,
+              endLine: 9,
+              chunkType: 'method_part_1',
+              content: 'before chunk',
+            },
+          ],
+          reference: {
+            startLine: 10,
+            endLine: 20,
+            chunkType: 'method_part_2',
+          },
+          after: [
+            {
+              startLine: 21,
+              endLine: 30,
+              chunkType: 'method_part_3',
+              content: 'after chunk',
+            },
+          ],
+        })
+      ).toBe(true);
+    });
+  });
+
   describe('OPEN_CODEBASE_MANAGER_SCHEMA', () => {
     it('should have correct name and description', () => {
       expect(OPEN_CODEBASE_MANAGER_SCHEMA.name).toBe('open_codebase_manager');
@@ -396,8 +472,8 @@ describe('MCP Tool Schemas', () => {
   });
 
   describe('ALL_TOOL_SCHEMAS', () => {
-    it('should export all eight tool schemas', () => {
-      expect(ALL_TOOL_SCHEMAS).toHaveLength(8);
+    it('should export all nine tool schemas', () => {
+      expect(ALL_TOOL_SCHEMAS).toHaveLength(9);
     });
 
     it('should have unique tool names', () => {

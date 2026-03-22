@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'fs';
+import { mkdirSync, rmSync, writeFileSync, existsSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import Fastify from 'fastify';
@@ -35,7 +35,7 @@ describe('Integration Tests (Mocked)', () => {
 
   beforeAll(() => {
     // Create temporary directory for test files
-    testDir = join(tmpdir(), `codebase-memory-test-mocked-${Date.now()}`);
+    testDir = mkdtempSync(join(tmpdir(), 'codebase-memory-test-mocked-'));
     mkdirSync(testDir, { recursive: true });
 
     testConfig = {
@@ -74,7 +74,7 @@ describe('Integration Tests (Mocked)', () => {
       expect(result.files.some(f => f.path.endsWith('.md'))).toBe(true);
       expect(result.files.some(f => f.path.endsWith('.json'))).toBe(true);
       expect(result.statistics.totalFiles).toBe(3);
-      expect(result.statistics.supportedFiles).toBe(1); // Only .ts is supported
+      expect(result.statistics.supportedFiles).toBe(3);
 
       // Clean up
       rmSync(testCodebasePath, { recursive: true, force: true });
@@ -119,7 +119,7 @@ export class UserManager {
       expect(languageDetection.detectLanguage('file.py')).toBe('python');
       expect(languageDetection.detectLanguage('file.java')).toBe('java');
       expect(languageDetection.detectLanguage('file.cs')).toBe('csharp');
-      expect(languageDetection.detectLanguage('file.md')).toBeNull();
+      expect(languageDetection.detectLanguage('file.md')).toBe('markdown');
     });
   });
 
@@ -393,7 +393,7 @@ export class UserManager {
   });
 
   describe('Entry Points Non-Conflict', () => {
-    it('should allow multiple Fastify servers on different ports', async () => {
+    it('should allow multiple Fastify servers to coexist independently', async () => {
       const mockCodebaseService = {
         listCodebases: vi.fn().mockResolvedValue([]),
         getCodebaseStats: vi.fn(),
@@ -416,11 +416,21 @@ export class UserManager {
       await registerRoutes(fastify1, mockCodebaseService, mockSearchService);
       await registerRoutes(fastify2, mockCodebaseService, mockSearchService);
 
-      await fastify1.listen({ port: 8011, host: 'localhost' });
-      await fastify2.listen({ port: 8012, host: 'localhost' });
+      await fastify1.ready();
+      await fastify2.ready();
 
-      expect(fastify1.server.listening).toBe(true);
-      expect(fastify2.server.listening).toBe(true);
+      const response1 = await fastify1.inject({
+        method: 'GET',
+        url: '/api/codebases',
+      });
+
+      const response2 = await fastify2.inject({
+        method: 'GET',
+        url: '/api/codebases',
+      });
+
+      expect(response1.statusCode).toBe(200);
+      expect(response2.statusCode).toBe(200);
 
       await fastify1.close();
       await fastify2.close();

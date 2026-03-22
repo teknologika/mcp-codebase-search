@@ -13,10 +13,38 @@ describe('SearchService', () => {
   let service: SearchService;
   let mockLanceClient: LanceDBClientWrapper;
   let mockEmbeddingService: EmbeddingService;
+  let mockOpenTable: ReturnType<typeof vi.fn>;
   let config: Config;
+
+  const createMockTable = (
+    rows: unknown[],
+    filteredRows: unknown[] = rows
+  ) => {
+    const mockFilteredQuery = {
+      toArray: vi.fn().mockResolvedValue(filteredRows),
+    };
+
+    const mockLimitResult = {
+      toArray: vi.fn().mockResolvedValue(rows),
+      where: vi.fn().mockReturnValue(mockFilteredQuery),
+    };
+
+    const mockLimit = vi.fn().mockReturnValue(mockLimitResult);
+
+    return {
+      table: {
+        search: vi.fn().mockReturnValue({
+          limit: mockLimit,
+        }),
+      },
+      mockLimit,
+      mockWhere: mockLimitResult.where,
+    };
+  };
 
   beforeEach(() => {
     config = { ...DEFAULT_CONFIG };
+    mockOpenTable = vi.fn();
     
     // Create mock embedding service
     mockEmbeddingService = {
@@ -33,6 +61,9 @@ describe('SearchService', () => {
       listTables: vi.fn(),
       getOrCreateTable: vi.fn(),
       tableExists: vi.fn(),
+      getConnection: vi.fn().mockReturnValue({
+        openTable: mockOpenTable,
+      }),
     } as any;
 
     service = new SearchService(mockLanceClient, mockEmbeddingService, config);
@@ -58,37 +89,28 @@ describe('SearchService', () => {
 
     it('should search and return ranked results', async () => {
       const mockQueryEmbedding = new Array(384).fill(0.1);
-      
-      const mockTable = {
-        search: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-              toArray: vi.fn().mockResolvedValue([
-                {
-                  filePath: '/path/to/file1.ts',
-                  startLine: 10,
-                  endLine: 20,
-                  language: 'typescript',
-                  chunkType: 'function',
-                  content: 'function test() {}',
-                  _distance: 0.2,
-                  _codebaseName: 'test-project',
-                },
-                {
-                  filePath: '/path/to/file2.ts',
-                  startLine: 30,
-                  endLine: 40,
-                  language: 'typescript',
-                  chunkType: 'class',
-                  content: 'class Test {}',
-                  _distance: 0.5,
-                  _codebaseName: 'test-project',
-                },
-              ]),
-            }),
-          }),
-        }),
-      };
+      const { table: mockTable } = createMockTable([
+        {
+          filePath: '/path/to/file1.ts',
+          startLine: 10,
+          endLine: 20,
+          language: 'typescript',
+          chunkType: 'function',
+          content: 'function test() {}',
+          _distance: 0.2,
+          _codebaseName: 'test-project',
+        },
+        {
+          filePath: '/path/to/file2.ts',
+          startLine: 30,
+          endLine: 40,
+          language: 'typescript',
+          chunkType: 'class',
+          content: 'class Test {}',
+          _distance: 0.5,
+          _codebaseName: 'test-project',
+        },
+      ]);
 
       vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(mockQueryEmbedding);
       vi.mocked(mockLanceClient.listTables).mockResolvedValue([
@@ -97,7 +119,7 @@ describe('SearchService', () => {
           metadata: { codebaseName: 'test-project' },
         },
       ]);
-      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      mockOpenTable.mockResolvedValue(mockTable as any);
 
       const params: SearchParams = {
         query: 'test query',
@@ -116,21 +138,12 @@ describe('SearchService', () => {
 
     it('should filter by codebase name', async () => {
       const mockQueryEmbedding = new Array(384).fill(0.1);
-      
+
       vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(mockQueryEmbedding);
       vi.mocked(mockLanceClient.tableExists).mockResolvedValue(true);
-      
-      const mockTable = {
-        search: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-              toArray: vi.fn().mockResolvedValue([]),
-            }),
-          }),
-        }),
-      };
+      const { table: mockTable } = createMockTable([]);
 
-      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      mockOpenTable.mockResolvedValue(mockTable as any);
 
       const params: SearchParams = {
         query: 'test query',
@@ -144,20 +157,7 @@ describe('SearchService', () => {
 
     it('should filter by language', async () => {
       const mockQueryEmbedding = new Array(384).fill(0.1);
-      
-      const mockWhere = vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValue([]),
-      });
-      
-      const mockLimit = vi.fn().mockReturnValue({
-        where: mockWhere,
-      });
-      
-      const mockTable = {
-        search: vi.fn().mockReturnValue({
-          limit: mockLimit,
-        }),
-      };
+      const { table: mockTable, mockWhere } = createMockTable([], []);
 
       vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(mockQueryEmbedding);
       vi.mocked(mockLanceClient.listTables).mockResolvedValue([
@@ -166,7 +166,7 @@ describe('SearchService', () => {
           metadata: { codebaseName: 'test-project' },
         },
       ]);
-      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      mockOpenTable.mockResolvedValue(mockTable as any);
 
       const params: SearchParams = {
         query: 'test query',
@@ -175,23 +175,12 @@ describe('SearchService', () => {
 
       await service.search(params);
 
-      expect(mockWhere).toHaveBeenCalledWith('language = "typescript"');
+      expect(mockWhere).toHaveBeenCalledWith("language = 'typescript'");
     });
 
     it('should limit results to maxResults', async () => {
       const mockQueryEmbedding = new Array(384).fill(0.1);
-      
-      const mockLimit = vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          toArray: vi.fn().mockResolvedValue([]),
-        }),
-      });
-      
-      const mockTable = {
-        search: vi.fn().mockReturnValue({
-          limit: mockLimit,
-        }),
-      };
+      const { table: mockTable, mockLimit } = createMockTable([]);
 
       vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(mockQueryEmbedding);
       vi.mocked(mockLanceClient.listTables).mockResolvedValue([
@@ -200,7 +189,7 @@ describe('SearchService', () => {
           metadata: { codebaseName: 'test-project' },
         },
       ]);
-      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      mockOpenTable.mockResolvedValue(mockTable as any);
 
       const params: SearchParams = {
         query: 'test query',
@@ -209,32 +198,23 @@ describe('SearchService', () => {
 
       await service.search(params);
 
-      expect(mockLimit).toHaveBeenCalledWith(10);
+      expect(mockLimit).toHaveBeenCalledWith(100);
     });
 
     it('should use cached results for identical queries', async () => {
       const mockQueryEmbedding = new Array(384).fill(0.1);
-      
-      const mockTable = {
-        search: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-              toArray: vi.fn().mockResolvedValue([
-                {
-                  filePath: '/path/to/file.ts',
-                  startLine: 10,
-                  endLine: 20,
-                  language: 'typescript',
-                  chunkType: 'function',
-                  content: 'function test() {}',
-                  _distance: 0.2,
-                  _codebaseName: 'test-project',
-                },
-              ]),
-            }),
-          }),
-        }),
-      };
+      const { table: mockTable } = createMockTable([
+        {
+          filePath: '/path/to/file.ts',
+          startLine: 10,
+          endLine: 20,
+          language: 'typescript',
+          chunkType: 'function',
+          content: 'function test() {}',
+          _distance: 0.2,
+          _codebaseName: 'test-project',
+        },
+      ]);
 
       vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(mockQueryEmbedding);
       vi.mocked(mockLanceClient.listTables).mockResolvedValue([
@@ -243,7 +223,7 @@ describe('SearchService', () => {
           metadata: { codebaseName: 'test-project' },
         },
       ]);
-      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      mockOpenTable.mockResolvedValue(mockTable as any);
 
       const params: SearchParams = {
         query: 'test query',
@@ -259,15 +239,83 @@ describe('SearchService', () => {
       expect(result2).toEqual(result1);
     });
 
-    it('should throw SearchError when embedding service not initialized', async () => {
-      vi.mocked(mockEmbeddingService.isInitialized).mockReturnValue(false);
+    it('should clear cache and recompute identical searches', async () => {
+      const mockQueryEmbedding = new Array(384).fill(0.1);
+      const { table: mockTable } = createMockTable([
+        {
+          filePath: '/path/to/file.ts',
+          startLine: 10,
+          endLine: 20,
+          language: 'typescript',
+          chunkType: 'function',
+          content: 'function test() {}',
+          _distance: 0.2,
+          _codebaseName: 'test-project',
+        },
+      ]);
+
+      vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(mockQueryEmbedding);
+      vi.mocked(mockLanceClient.listTables).mockResolvedValue([
+        {
+          name: 'codebase_test-project_1_0_0',
+          metadata: { codebaseName: 'test-project' },
+        },
+      ]);
+      mockOpenTable.mockResolvedValue(mockTable as any);
 
       const params: SearchParams = {
         query: 'test query',
       };
 
-      await expect(service.search(params)).rejects.toThrow(SearchError);
-      await expect(service.search(params)).rejects.toThrow('Embedding service not initialized');
+      const firstResult = await service.search(params);
+      expect(mockEmbeddingService.generateEmbedding).toHaveBeenCalledTimes(1);
+      expect(service.getCacheStats().size).toBe(1);
+
+      service.clearCache();
+      expect(service.getCacheStats().size).toBe(0);
+
+      const secondResult = await service.search(params);
+      expect(mockEmbeddingService.generateEmbedding).toHaveBeenCalledTimes(2);
+      expect(mockTable.search).toHaveBeenCalledTimes(2);
+      expect(secondResult.results).toEqual(firstResult.results);
+      expect(secondResult.totalResults).toBe(firstResult.totalResults);
+      expect(secondResult.queryTime).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should initialize embedding service when not initialized', async () => {
+      vi.mocked(mockEmbeddingService.isInitialized).mockReturnValue(false);
+      vi.mocked(mockEmbeddingService.initialize).mockResolvedValue(undefined);
+      vi.mocked(mockEmbeddingService.generateEmbedding).mockResolvedValue(
+        new Array(384).fill(0.1)
+      );
+      vi.mocked(mockLanceClient.listTables).mockResolvedValue([
+        {
+          name: 'codebase_test-project_1_0_0',
+          metadata: { codebaseName: 'test-project' },
+        },
+      ]);
+      const { table: mockTable } = createMockTable([
+        {
+          filePath: '/path/to/file.ts',
+          startLine: 10,
+          endLine: 20,
+          language: 'typescript',
+          chunkType: 'function',
+          content: 'function test() {}',
+          _distance: 0.2,
+          _codebaseName: 'test-project',
+        },
+      ]);
+      mockOpenTable.mockResolvedValue(mockTable as any);
+
+      const params: SearchParams = {
+        query: 'test query',
+      };
+
+      const result = await service.search(params);
+
+      expect(mockEmbeddingService.initialize).toHaveBeenCalledTimes(1);
+      expect(result.results).toHaveLength(1);
     });
 
     it('should throw SearchError on embedding generation failure', async () => {

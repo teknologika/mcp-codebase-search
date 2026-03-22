@@ -4,6 +4,8 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
+import { writeFile } from 'fs/promises';
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'os';
 import { resolve, join } from 'path';
 import AjvModule, { type JSONSchemaType } from 'ajv';
@@ -18,6 +20,8 @@ const addFormats = (addFormatsModule as any).default || addFormatsModule;
  * Current schema version
  */
 export const SCHEMA_VERSION = '1.0.0';
+
+const SESSION_SECRET_FALLBACK = 'change-me-in-production-please-use-a-long-random-string';
 
 /**
  * Default configuration values
@@ -199,20 +203,22 @@ function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>)
 /**
  * Load configuration from file
  */
-function loadConfigFile(configPath?: string): Partial<Config> {
+function loadConfigFile(configPath?: string, required = false): Partial<Config> {
   if (!configPath) {
     return {};
   }
 
-  const resolvedPath = expandPath(resolve(configPath));
-  
-  if (!existsSync(resolvedPath)) {
+  if (!existsSync(configPath)) {
+    if (required) {
+      throw new Error(`Configuration file not found: ${configPath}`);
+    }
+
     // Return empty config instead of throwing - let defaults be used
     return {};
   }
 
   try {
-    const fileContent = readFileSync(resolvedPath, 'utf-8');
+    const fileContent = readFileSync(configPath, 'utf-8');
     return JSON.parse(fileContent);
   } catch (error) {
     throw new Error(
@@ -306,6 +312,17 @@ function expandConfigPaths(config: Config): Config {
   };
 }
 
+async function persistGeneratedSessionSecret(configPath: string, config: Config): Promise<void> {
+  try {
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (error) {
+    // Non-fatal: session secret won't persist but the server will still work
+    console.warn('Could not persist generated session secret to config file', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /**
  * Load and validate configuration
  * 
@@ -322,6 +339,7 @@ function expandConfigPaths(config: Config): Config {
 export function loadConfig(configPath?: string): Config {
   // Start with defaults
   let config: Config = { ...DEFAULT_CONFIG };
+  let loadedConfigPath: string | undefined;
 
   // Try to load from default location first
   const defaultConfigPath = join(homedir(), '.codebase-memory', 'config.json');
@@ -329,6 +347,7 @@ export function loadConfig(configPath?: string): Config {
     try {
       const fileConfig = loadConfigFile(defaultConfigPath);
       config = deepMerge(config, fileConfig);
+      loadedConfigPath = defaultConfigPath;
     } catch (error) {
       // Ignore errors from default config file - it's optional
       console.warn(`Warning: Failed to load default config from ${defaultConfigPath}: ${error instanceof Error ? error.message : String(error)}`);
@@ -337,8 +356,10 @@ export function loadConfig(configPath?: string): Config {
 
   // Merge config file if explicitly provided
   if (configPath) {
-    const fileConfig = loadConfigFile(configPath);
+    const resolvedConfigPath = expandPath(resolve(configPath));
+    const fileConfig = loadConfigFile(resolvedConfigPath, true);
     config = deepMerge(config, fileConfig);
+    loadedConfigPath = resolvedConfigPath;
   }
 
   // Merge environment variables (highest priority)
@@ -347,6 +368,17 @@ export function loadConfig(configPath?: string): Config {
 
   // Expand paths (tilde to home directory)
   config = expandConfigPaths(config);
+
+  if (
+    !config.server.sessionSecret ||
+    config.server.sessionSecret === SESSION_SECRET_FALLBACK
+  ) {
+    config.server.sessionSecret = randomBytes(32).toString('hex');
+
+    if (loadedConfigPath) {
+      void persistGeneratedSessionSecret(loadedConfigPath, config);
+    }
+  }
 
   // Validate configuration
   if (!validateConfig(config)) {

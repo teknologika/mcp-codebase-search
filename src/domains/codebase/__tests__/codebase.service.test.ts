@@ -196,39 +196,41 @@ describe('CodebaseService', () => {
   });
 
   describe('getChunkContent', () => {
-    it('should recover from small line drift with fuzzy matching', async () => {
-      const exactToArray = vi.fn().mockResolvedValue([]);
-      const fuzzyToArray = vi.fn().mockResolvedValue([
-        {
-          filePath: 'src/test.ts',
-          language: 'typescript',
-          startLine: 10,
-          endLine: 20,
-          content: 'function test() {}',
-        },
-      ]);
+    it('should return an exact chunk match without drift', async () => {
+      const exactRow = {
+        filePath: 'src/test.ts',
+        language: 'typescript',
+        startLine: 10,
+        endLine: 20,
+        content: 'function test() {}',
+      };
+
+      const mockWhere = vi.fn((clause: string) => {
+        if (clause.includes("startLine` = 10") && clause.includes("endLine` = 20")) {
+          return {
+            limit: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([exactRow]),
+            }),
+          };
+        }
+
+        return {
+          limit: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+          toArray: vi.fn().mockResolvedValue([]),
+        };
+      });
 
       const mockTable = {
         query: vi.fn().mockReturnValue({
-          where: vi.fn().mockImplementation((clause: string) => {
-            if (clause.includes('>= 7') && clause.includes('<= 17')) {
-              return {
-                toArray: fuzzyToArray,
-              };
-            }
-
-            return {
-              limit: vi.fn().mockReturnValue({
-                toArray: exactToArray,
-              }),
-            };
-          }),
+          where: mockWhere,
         }),
       };
 
       vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
 
-      const result = await service.getChunkContent('test-project', 'src/test.ts', 12, 22);
+      const result = await service.getChunkContent('test-project', 'src/test.ts', 10, 20);
 
       expect(result).toMatchObject({
         codebaseName: 'test-project',
@@ -238,10 +240,99 @@ describe('CodebaseService', () => {
         language: 'typescript',
         chunkType: 'unknown',
         content: 'function test() {}',
-        lineNumberDrift: 2,
       });
-      expect(exactToArray).toHaveBeenCalledOnce();
-      expect(fuzzyToArray).toHaveBeenCalledOnce();
+      expect(result.lineNumberDrift).toBeUndefined();
+      expect(mockWhere).toHaveBeenCalledOnce();
+    });
+
+    it('should recover from small line drift with fuzzy matching', async () => {
+      const fuzzyRow = {
+        filePath: 'src/test.ts',
+        language: 'typescript',
+        startLine: 15,
+        endLine: 25,
+        content: 'function test() {}',
+      };
+
+      const mockWhere = vi.fn((clause: string) => {
+        if (clause.includes("startLine` = 10") && clause.includes("endLine` = 20")) {
+          return {
+            limit: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([]),
+            }),
+          };
+        }
+
+        if (clause.includes("startLine` >= 5") && clause.includes("startLine` <= 15")) {
+          return {
+            toArray: vi.fn().mockResolvedValue([fuzzyRow]),
+          };
+        }
+
+        return {
+          limit: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+          toArray: vi.fn().mockResolvedValue([]),
+        };
+      });
+
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          where: mockWhere,
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const result = await service.getChunkContent('test-project', 'src/test.ts', 10, 20);
+
+      expect(result).toMatchObject({
+        codebaseName: 'test-project',
+        filePath: 'src/test.ts',
+        startLine: 15,
+        endLine: 25,
+        language: 'typescript',
+        chunkType: 'unknown',
+        content: 'function test() {}',
+        lineNumberDrift: 5,
+      });
+      expect(mockWhere).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw a not-found error when no chunk is within tolerance', async () => {
+      const mockWhere = vi.fn((clause: string) => {
+        if (clause.includes("startLine` = 10") && clause.includes("endLine` = 20")) {
+          return {
+            limit: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([]),
+            }),
+          };
+        }
+
+        return {
+          toArray: vi.fn().mockResolvedValue([]),
+          limit: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+        };
+      });
+
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          where: mockWhere,
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const request = service.getChunkContent('test-project', 'src/test.ts', 10, 20);
+
+      await expect(request).rejects.toThrow(CodebaseError);
+      await expect(request).rejects.toThrow(
+        "Chunk not found after trying original path 'src/test.ts' and normalized path 'src/test.ts'"
+      );
+      expect(mockWhere).toHaveBeenCalledTimes(2);
     });
 
     it('should fail fast when an absolute path cannot be normalized', async () => {
@@ -254,10 +345,86 @@ describe('CodebaseService', () => {
         new CodebaseError("Codebase 'test-project' has no stored path")
       );
 
-      await expect(
-        service.getChunkContent('test-project', '/absolute/path/to/src/test.ts', 12, 22)
-      ).rejects.toThrow("Cannot resolve absolute path '/absolute/path/to/src/test.ts'");
+      const request = service.getChunkContent(
+        'test-project',
+        '/absolute/path/to/src/test.ts',
+        12,
+        22
+      );
+
+      await expect(request).rejects.toThrow('Cannot resolve absolute path');
+      await expect(request).rejects.toThrow('Use a relative path or re-ingest');
       expect(mockTable.query).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getAdjacentChunks', () => {
+    it('should return neighbouring chunks around the closest match', async () => {
+      const rows = [
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          startLine: 1,
+          endLine: 10,
+          chunkType: 'method_part_1',
+          content: 'before chunk',
+        },
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          startLine: 11,
+          endLine: 20,
+          chunkType: 'method_part_2',
+          content: 'reference chunk',
+        },
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          startLine: 21,
+          endLine: 30,
+          chunkType: 'method_part_3',
+          content: 'after chunk',
+        },
+      ];
+
+      const mockWhere = vi.fn().mockReturnValue({
+        toArray: vi.fn().mockResolvedValue(rows),
+      });
+
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          where: mockWhere,
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const result = await service.getAdjacentChunks('test-project', 'src/test.ts', 11, 20);
+
+      expect(result).toEqual({
+        before: [
+          {
+            startLine: 1,
+            endLine: 10,
+            chunkType: 'method_part_1',
+            content: 'before chunk',
+          },
+        ],
+        reference: {
+          startLine: 11,
+          endLine: 20,
+          chunkType: 'method_part_2',
+        },
+        after: [
+          {
+            startLine: 21,
+            endLine: 30,
+            chunkType: 'method_part_3',
+            content: 'after chunk',
+          },
+        ],
+      });
+      expect(mockWhere).toHaveBeenCalledOnce();
     });
   });
 
@@ -330,6 +497,7 @@ describe('CodebaseService', () => {
       };
 
       vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      vi.spyOn(service, 'getCodebasePath').mockResolvedValue('/path/to/project');
 
       await expect(
         service.getFileContent('test-project', 'nonexistent.ts')
