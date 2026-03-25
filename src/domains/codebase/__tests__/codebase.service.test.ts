@@ -493,7 +493,7 @@ describe('CodebaseService', () => {
   });
 
   describe('getFileContent', () => {
-    it('should handle relative paths correctly', async () => {
+    it('should skip getCodebasePath for relative paths', async () => {
       const mockTable = {
         query: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -501,9 +501,7 @@ describe('CodebaseService', () => {
               {
                 filePath: 'src/test.ts',
                 language: 'typescript',
-                startLine: 1,
-                endLine: 10,
-                content: 'function test() {}',
+                fullFileContent: 'line 1\nline 2',
               },
             ]),
           }),
@@ -511,44 +509,43 @@ describe('CodebaseService', () => {
       };
 
       vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      const getCodebasePathSpy = vi.spyOn(service, 'getCodebasePath');
 
-      // Mock file system read
-      const mockReadFile = vi.fn().mockResolvedValue('import test;\n\nfunction test() {}\n\nexport default test;');
-      vi.doMock('node:fs/promises', () => ({
-        readFile: mockReadFile,
-        stat: vi.fn(),
-      }));
-
-      // Note: This test would need actual file system mocking to work fully
-      // For now, it validates the path handling logic
-      await expect(
-        service.getFileContent('test-project', 'src/test.ts')
-      ).rejects.toThrow(); // Will fail without proper FS mocking
+      const result = await service.getFileContent('test-project', 'src/test.ts');
+      expect(result.filePath).toBe('src/test.ts');
+      expect(getCodebasePathSpy).not.toHaveBeenCalled();
     });
 
-    it('should handle absolute paths by converting to relative', async () => {
+    it('should convert absolute paths to relative via getCodebasePath', async () => {
+      const toArray = vi.fn().mockResolvedValue([
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          fullFileContent: 'line 1\nline 2',
+        },
+      ]);
+      const where = vi.fn().mockReturnValue({
+        toArray,
+      });
       const mockTable = {
         query: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            toArray: vi.fn().mockResolvedValue([
-              {
-                filePath: 'src/test.ts',
-                language: 'typescript',
-                startLine: 1,
-                endLine: 10,
-                content: 'function test() {}',
-              },
-            ]),
-          }),
+          where,
         }),
       };
 
       vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+      const getCodebasePathSpy = vi
+        .spyOn(service, 'getCodebasePath')
+        .mockResolvedValue('/absolute/path/to');
 
-      // This validates that absolute paths are handled
-      await expect(
-        service.getFileContent('test-project', '/absolute/path/to/src/test.ts')
-      ).rejects.toThrow(); // Will fail without proper FS mocking
+      const result = await service.getFileContent(
+        'test-project',
+        '/absolute/path/to/src/test.ts'
+      );
+
+      expect(result.filePath).toBe('src/test.ts');
+      expect(getCodebasePathSpy).toHaveBeenCalledOnce();
+      expect(where).toHaveBeenCalledWith("`filePath` = 'src/test.ts'");
     });
 
     it('should throw error when file not found in database', async () => {

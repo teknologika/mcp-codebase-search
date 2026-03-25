@@ -321,6 +321,115 @@ describe('MCPServer stale warning behavior', () => {
     expect(payload.recovery).toContain('chunkCount');
   });
 
+  it('should return invalid_input when filePath is missing', async () => {
+    const response = await (server as any).handleGetFileContent({
+      codebaseName: 'test-project',
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    expect(payload.error).toBe('invalid_input');
+    expect(payload.message).toMatch(/required|must/i);
+    expect(payload).toHaveProperty('filePath');
+    expect(payload).toHaveProperty('codebaseName', 'test-project');
+  });
+
+  it('should classify file not found errors as file_not_found', async () => {
+    mockCodebaseService.getFileContent.mockRejectedValue(
+      new Error("File not found: src/missing.ts in codebase 'test-project'")
+    );
+
+    const response = await (server as any).handleGetFileContent({
+      codebaseName: 'test-project',
+      filePath: 'src/missing.ts',
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    expect(payload).toMatchObject({
+      error: 'file_not_found',
+      filePath: 'src/missing.ts',
+      codebaseName: 'test-project',
+    });
+    expect(payload.recovery).toContain('list_files');
+  });
+
+  it('should classify missing codebase errors as codebase_not_found', async () => {
+    mockCodebaseService.getFileContent.mockRejectedValue(
+      new Error("Codebase 'ghost-project' not found")
+    );
+
+    const response = await (server as any).handleGetFileContent({
+      codebaseName: 'ghost-project',
+      filePath: 'src/test.ts',
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    expect(payload).toMatchObject({
+      error: 'codebase_not_found',
+      filePath: 'src/test.ts',
+      codebaseName: 'ghost-project',
+    });
+    expect(payload.recovery).toContain('list_codebases');
+  });
+
+  it('should classify missing full content errors as file_content_unavailable', async () => {
+    mockCodebaseService.getFileContent.mockRejectedValue(
+      new Error(
+        'File content not available in database for src/test.ts. Re-ingest the codebase with storeFullFiles enabled.'
+      )
+    );
+
+    const response = await (server as any).handleGetFileContent({
+      codebaseName: 'test-project',
+      filePath: 'src/test.ts',
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    expect(payload).toMatchObject({
+      error: 'file_content_unavailable',
+      filePath: 'src/test.ts',
+      codebaseName: 'test-project',
+    });
+  });
+
+  it('should include filePath and codebaseName on every get_file_content error response', async () => {
+    const cases = [
+      {
+        args: { codebaseName: 'test-project' } as any,
+        serviceError: null,
+      },
+      {
+        args: { codebaseName: 'test-project', filePath: 'src/missing.ts' } as any,
+        serviceError: "File not found: src/missing.ts in codebase 'test-project'",
+      },
+      {
+        args: { codebaseName: 'ghost-project', filePath: 'src/test.ts' } as any,
+        serviceError: "Codebase 'ghost-project' not found",
+      },
+      {
+        args: { codebaseName: 'test-project', filePath: 'src/test.ts' } as any,
+        serviceError:
+          'File content not available in database for src/test.ts. Re-ingest the codebase with storeFullFiles enabled.',
+      },
+      {
+        args: { codebaseName: 'test-project', filePath: 'src/test.ts' } as any,
+        serviceError: 'file too large',
+      },
+    ];
+
+    for (const entry of cases) {
+      mockCodebaseService.getFileContent.mockReset();
+      if (entry.serviceError) {
+        mockCodebaseService.getFileContent.mockRejectedValue(new Error(entry.serviceError));
+      }
+
+      const response = await (server as any).handleGetFileContent(entry.args);
+      const payload = JSON.parse(response.content[0].text);
+
+      expect(payload).toHaveProperty('filePath');
+      expect(payload).toHaveProperty('codebaseName');
+    }
+  });
+
   it('should return a recoverable adjacent chunk error response', async () => {
     mockCodebaseService.getAdjacentChunks.mockRejectedValue(new Error('no adjacent chunks'));
 

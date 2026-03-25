@@ -496,11 +496,13 @@ export class MCPServer {
    * Handle get_file_content tool call
    */
   private async handleGetFileContent(args: unknown) {
-    // Validate input
-    this.validateInput(GET_FILE_CONTENT_SCHEMA.inputSchema, args);
-    const input = args as GetFileContentInput;
+    let input: GetFileContentInput | undefined;
 
     try {
+      // Validate input
+      this.validateInput(GET_FILE_CONTENT_SCHEMA.inputSchema, args);
+      input = args as GetFileContentInput;
+
       // Call service to get file content
       const file = await this.codebaseService.getFileContent(
         input.codebaseName,
@@ -518,18 +520,53 @@ export class MCPServer {
     } catch (error) {
       // Return a recoverable response instead of throwing.
       const message = error instanceof Error ? error.message : String(error);
+      const fallbackInput = args as any;
+      const filePath = input?.filePath ?? fallbackInput?.filePath ?? null;
+      const codebaseName = input?.codebaseName ?? fallbackInput?.codebaseName ?? null;
+
+      let errorCode = 'file_retrieval_failed';
+      let recovery =
+        `Failed to retrieve '${filePath}' as a single response — the file may be too large. ` +
+        `Use search_codebases with a query describing the specific code you need in this file, ` +
+        `then call get_chunk_content with the line ranges from those results. ` +
+        `Call list_files to check the file's chunkCount before attempting get_file_content on large files.`;
+
+      if (/validation|required|must/i.test(message)) {
+        errorCode = 'invalid_input';
+        recovery =
+          `Provide valid get_file_content arguments. ` +
+          `Ensure both codebaseName and filePath are present and match the tool schema.`;
+      } else if (/Codebase '.*' not found/i.test(message) && !/File not found:/i.test(message)) {
+        errorCode = 'codebase_not_found';
+        recovery =
+          `The requested codebase was not found. ` +
+          `Call list_codebases to find a valid name, then retry get_file_content.`;
+      } else if (/File not found:/i.test(message)) {
+        errorCode = 'file_not_found';
+        recovery =
+          `The file path was not found in the selected codebase. ` +
+          `Check that filePath is relative to the codebase root, then use list_files or search_codebases to locate the correct path.`;
+      } else if (/File content not available/i.test(message)) {
+        errorCode = 'file_content_unavailable';
+        recovery =
+          `The file exists in the index but full file content is unavailable. ` +
+          `Re-ingest with storeFullFiles enabled, or use search_codebases plus get_chunk_content to retrieve targeted sections.`;
+      } else if (/does not exist or is not accessible/i.test(message)) {
+        errorCode = 'codebase_path_missing';
+        recovery =
+          `The indexed codebase path is no longer accessible on disk. ` +
+          `Re-index the codebase (or run update_codebase_scan after restoring the path) and retry.`;
+      }
+
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
-            error: 'file_retrieval_failed',
+            error: errorCode,
             message,
-            recovery: `Failed to retrieve '${input.filePath}' as a single response — the file may be too large. ` +
-              `Use search_codebases with a query describing the specific code you need in this file, ` +
-              `then call get_chunk_content with the line ranges from those results. ` +
-              `Call list_files to check the file's chunkCount before attempting get_file_content on large files.`,
-            filePath: input.filePath,
-            codebaseName: input.codebaseName,
+            recovery,
+            filePath,
+            codebaseName,
           }, null, 2),
         }],
       };

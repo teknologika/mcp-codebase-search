@@ -976,12 +976,11 @@ export class CodebaseService {
           throw new CodebaseError(`Codebase '${codebaseName}' not found`);
         }
 
-        // Get the codebase root path
-        const codebasePath = await this.getCodebasePath(codebaseName);
-
         // Normalize the file path - handle both relative and absolute paths
         let normalizedFilePath = filePath;
         if (path.isAbsolute(filePath)) {
+          // Get codebase root path only when converting absolute paths
+          const codebasePath = await this.getCodebasePath(codebaseName);
           // Convert absolute path to relative path from codebase root
           normalizedFilePath = path.relative(codebasePath, filePath);
         }
