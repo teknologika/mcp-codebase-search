@@ -15,7 +15,7 @@
  */
 export const LIST_CODEBASES_SCHEMA = {
   name: 'list_codebases',
-  description: 'List all indexed codebases with their metadata including name, path, chunk count, file count, last ingestion timestamp, and supported languages.',
+  description: 'List all indexed codebases with their metadata including name, path, chunk count, file count, last file modification timestamp, and supported languages.',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -48,15 +48,9 @@ export const LIST_CODEBASES_SCHEMA = {
               description: 'Total number of files processed',
               minimum: 0,
             },
-            lastIngestion: {
+            lastModified: {
               type: 'string',
-              description: 'ISO 8601 timestamp of the last ingestion',
-              format: 'date-time',
-            },
-            lastScanAge: {
-              type: 'number',
-              description: 'Seconds since the last ingestion',
-              minimum: 0,
+              description: 'ISO 8601 timestamp of the most recently modified indexed file',
             },
             languages: {
               type: 'array',
@@ -66,7 +60,7 @@ export const LIST_CODEBASES_SCHEMA = {
               },
             },
           },
-          required: ['name', 'path', 'chunkCount', 'fileCount', 'lastIngestion', 'languages'],
+          required: ['name', 'path', 'chunkCount', 'fileCount', 'lastModified', 'languages'],
           additionalProperties: false,
         },
       },
@@ -195,12 +189,38 @@ export const SEARCH_CODEBASES_SCHEMA = {
         description: 'Time taken to execute the query in milliseconds',
         minimum: 0,
       },
-      staleWarning: {
-        type: 'string',
-        description: 'Advisory warning when the codebase index may be stale',
+      staleFiles: {
+        type: 'array',
+        description: 'Files in the results whose on-disk mtime is newer than the indexed file mtime',
+        items: {
+          type: 'object',
+          properties: {
+            filePath: {
+              type: 'string',
+              description: 'Relative path to a stale file',
+            },
+            indexedAt: {
+              type: 'string',
+              description: 'Stored file mtime (ISO 8601) from the index',
+              format: 'date-time',
+            },
+            modifiedAt: {
+              type: 'string',
+              description: 'Current on-disk mtime (ISO 8601)',
+              format: 'date-time',
+            },
+            staleSecs: {
+              type: 'number',
+              description: 'How many seconds the file is newer than the indexed mtime',
+              minimum: 0,
+            },
+          },
+          required: ['filePath', 'indexedAt', 'modifiedAt', 'staleSecs'],
+          additionalProperties: false,
+        },
       },
     },
-    required: ['results', 'totalResults', 'queryTime'],
+    required: ['results', 'totalResults', 'queryTime', 'staleFiles'],
     additionalProperties: false,
   },
 } as const;
@@ -247,9 +267,9 @@ export const GET_CODEBASE_STATS_SCHEMA = {
         description: 'Total number of files processed',
         minimum: 0,
       },
-      lastIngestion: {
+      lastModified: {
         type: 'string',
-        description: 'ISO 8601 timestamp of the last ingestion',
+        description: 'ISO 8601 timestamp of the most recently modified indexed file',
         format: 'date-time',
       },
       languages: {
@@ -304,7 +324,7 @@ export const GET_CODEBASE_STATS_SCHEMA = {
         minimum: 0,
       },
     },
-    required: ['name', 'path', 'chunkCount', 'fileCount', 'lastIngestion', 'languages', 'chunkTypes', 'sizeBytes'],
+    required: ['name', 'path', 'chunkCount', 'fileCount', 'lastModified', 'languages', 'chunkTypes', 'sizeBytes'],
     additionalProperties: false,
   },
 } as const;
@@ -348,7 +368,7 @@ export const OPEN_CODEBASE_MANAGER_SCHEMA = {
  */
 export const LIST_FILES_SCHEMA = {
   name: 'list_files',
-  description: 'List all files in a codebase with metadata including chunk count, language, size, and last ingestion timestamp. Useful for understanding codebase structure and finding specific files.',
+  description: 'List all files in a codebase with metadata including chunk count, language, size, and file modified timestamp. Useful for understanding codebase structure and finding specific files.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -383,9 +403,10 @@ export const LIST_FILES_SCHEMA = {
               description: 'Number of chunks extracted from this file',
               minimum: 0,
             },
-            lastIngestion: {
+            fileMtime: {
               type: 'string',
-              description: 'ISO 8601 timestamp of last ingestion',
+              description: 'ISO 8601 timestamp of file mtime on disk when indexed',
+              format: 'date-time',
             },
             sizeBytes: {
               type: 'number',
@@ -401,7 +422,7 @@ export const LIST_FILES_SCHEMA = {
               description: 'Whether this is a library/vendor file',
             },
           },
-          required: ['filePath', 'language', 'chunkCount', 'lastIngestion', 'sizeBytes', 'isTestFile', 'isLibraryFile'],
+          required: ['filePath', 'language', 'chunkCount', 'fileMtime', 'sizeBytes', 'isTestFile', 'isLibraryFile'],
         },
       },
       codebaseName: {
@@ -845,8 +866,7 @@ export interface ListCodebasesOutput {
     path: string;
     chunkCount: number;
     fileCount: number;
-    lastIngestion: string;
-    lastScanAge?: number;
+    lastModified: string;
     languages: string[];
   }>;
 }
@@ -873,7 +893,12 @@ export interface SearchCodebasesOutput {
   }>;
   totalResults: number;
   queryTime: number;
-  staleWarning?: string;
+  staleFiles: Array<{
+    filePath: string;
+    indexedAt: string;
+    modifiedAt: string;
+    staleSecs: number;
+  }>;
 }
 
 export interface GetCodebaseStatsInput {
@@ -885,7 +910,7 @@ export interface GetCodebaseStatsOutput {
   path: string;
   chunkCount: number;
   fileCount: number;
-  lastIngestion: string;
+  lastModified: string;
   languages: Array<{
     language: string;
     fileCount: number;
@@ -917,7 +942,7 @@ export interface ListFilesOutput {
     filePath: string;
     language: string;
     chunkCount: number;
-    lastIngestion: string;
+    fileMtime: string;
     sizeBytes: number;
     isTestFile: boolean;
     isLibraryFile: boolean;

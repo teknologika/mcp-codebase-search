@@ -18,6 +18,7 @@ import AjvModule, { type ValidateFunction } from 'ajv';
 import addFormatsModule from 'ajv-formats';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { stat } from 'node:fs/promises';
 import type { Config } from '../../shared/types/index.js';
 import type { CodebaseService } from '../../domains/codebase/codebase.service.js';
 import type { SearchService } from '../../domains/search/search.service.js';
@@ -50,7 +51,6 @@ const silentLogger = {
 } as any;
 
 const execAsync = promisify(exec);
-const STALE_WARNING_THRESHOLD_SECONDS = 600;
 
 // Get the constructors - handle both ESM and CJS
 const Ajv = (AjvModule as any).default || AjvModule;
@@ -207,9 +207,7 @@ export class MCPServer {
       language: input.language,
       maxResults: input.maxResults,
     });
-    const staleWarning = input.codebaseName
-      ? await this.getStaleWarning(input.codebaseName)
-      : null;
+    const staleFiles = await this.getStaleFiles(results.results, input.codebaseName);
 
     const topN = input.topContentResults ?? 0;
     const useIncludeContent = input.includeContent ?? false;
@@ -234,7 +232,7 @@ export class MCPServer {
       results: formattedResults,
       totalResults: results.totalResults,
       queryTime: results.queryTime,
-      ...(staleWarning ? { staleWarning } : {}),
+      staleFiles,
     };
     return {
       content: [
@@ -462,27 +460,35 @@ export class MCPServer {
         input.startLine,
         input.endLine
       );
-      const staleWarning = await this.getStaleWarning(input.codebaseName);
-
-      const response = {
-        ...chunk,
-        ...(staleWarning ? { staleWarning } : {}),
-      };
 
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(response, null, 2),
+            text: JSON.stringify(chunk, null, 2),
           },
         ],
       };
     } catch (error) {
-      throw this.createError(
-        MCPErrorCode.INTERNAL_ERROR,
-        `Failed to get chunk content: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
+      // Return a recoverable response instead of throwing.
+      // Throwing produces "Tool execution failed" which gives the LLM nothing to act on.
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'chunk_not_found',
+            message,
+            recovery: `The requested line range ${input.startLine}–${input.endLine} does not match any indexed chunk in '${input.filePath}'. ` +
+              `Use search_codebases with a query describing the code you want to find in this file to get valid line numbers, ` +
+              `then call get_chunk_content with those line numbers. ` +
+              `Alternatively use get_file_content if the file is small (check chunkCount via list_files first).`,
+            requestedRange: { startLine: input.startLine, endLine: input.endLine },
+            filePath: input.filePath,
+            codebaseName: input.codebaseName,
+          }, null, 2),
+        }],
+      };
     }
   }
 
@@ -510,11 +516,23 @@ export class MCPServer {
         ],
       };
     } catch (error) {
-      throw this.createError(
-        MCPErrorCode.INTERNAL_ERROR,
-        `Failed to get file content: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
+      // Return a recoverable response instead of throwing.
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'file_retrieval_failed',
+            message,
+            recovery: `Failed to retrieve '${input.filePath}' as a single response — the file may be too large. ` +
+              `Use search_codebases with a query describing the specific code you need in this file, ` +
+              `then call get_chunk_content with the line ranges from those results. ` +
+              `Call list_files to check the file's chunkCount before attempting get_file_content on large files.`,
+            filePath: input.filePath,
+            codebaseName: input.codebaseName,
+          }, null, 2),
+        }],
+      };
     }
   }
 
@@ -539,39 +557,118 @@ export class MCPServer {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       };
     } catch (error) {
-      throw this.createError(
-        MCPErrorCode.INTERNAL_ERROR,
-        `Failed to get adjacent chunks: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            error: 'adjacent_chunks_failed',
+            message,
+            recovery: `Could not retrieve adjacent chunks for '${input.filePath}' around lines ${input.startLine}–${input.endLine}. ` +
+              `Use search_codebases to find nearby chunks in this file by describing the surrounding code.`,
+            filePath: input.filePath,
+            codebaseName: input.codebaseName,
+            requestedRange: { startLine: input.startLine, endLine: input.endLine },
+          }, null, 2),
+        }],
+      };
     }
   }
 
-  /**
-   * Return an advisory warning if a codebase scan is stale.
-   */
-  private async getStaleWarning(codebaseName: string): Promise<string | null> {
+  private async getStaleFiles(
+    results: Array<{ filePath: string; codebaseName?: string }>,
+    defaultCodebaseName?: string
+  ): Promise<Array<{
+    filePath: string;
+    indexedAt: string;
+    modifiedAt: string;
+    staleSecs: number;
+  }>> {
+    if (results.length === 0) {
+      return [];
+    }
+
     try {
       const codebases = await this.codebaseService.listCodebases();
-      const codebase = codebases.find(entry => entry.name === codebaseName);
-      if (!codebase?.lastIngestion) {
-        return null;
+      const codebasePathByName = new Map(codebases.map(cb => [cb.name, cb.path]));
+      const fileMtimeByCodebase = new Map<string, Map<string, string>>();
+
+      const codebaseNames = new Set<string>();
+      for (const result of results) {
+        const codebaseName = result.codebaseName || defaultCodebaseName;
+        if (codebaseName) {
+          codebaseNames.add(codebaseName);
+        }
       }
 
-      const parsedLastIngestion = Date.parse(codebase.lastIngestion);
-      if (Number.isNaN(parsedLastIngestion)) {
-        return null;
+      for (const codebaseName of codebaseNames) {
+        try {
+          const files = await this.codebaseService.listFiles(codebaseName);
+          fileMtimeByCodebase.set(
+            codebaseName,
+            new Map(files.map(file => [file.filePath, file.fileMtime]))
+          );
+        } catch {
+          // Ignore file-level stale detection for codebases we can't resolve here.
+        }
       }
 
-      const ageSeconds = Math.floor((Date.now() - parsedLastIngestion) / 1000);
-      if (ageSeconds <= STALE_WARNING_THRESHOLD_SECONDS) {
-        return null;
+      const staleFiles: Array<{
+        filePath: string;
+        indexedAt: string;
+        modifiedAt: string;
+        staleSecs: number;
+      }> = [];
+      const seen = new Set<string>();
+
+      for (const result of results) {
+        const codebaseName = result.codebaseName || defaultCodebaseName;
+        if (!codebaseName) {
+          continue;
+        }
+
+        const dedupeKey = `${codebaseName}::${result.filePath}`;
+        if (seen.has(dedupeKey)) {
+          continue;
+        }
+        seen.add(dedupeKey);
+
+        const codebasePath = codebasePathByName.get(codebaseName);
+        const fileMtimes = fileMtimeByCodebase.get(codebaseName);
+        const indexedAt = fileMtimes?.get(result.filePath) || '';
+        if (!codebasePath || !indexedAt) {
+          continue;
+        }
+
+        const indexedAtMs = Date.parse(indexedAt);
+        if (Number.isNaN(indexedAtMs)) {
+          continue;
+        }
+
+        const absolutePath = `${codebasePath}/${result.filePath}`;
+
+        try {
+          const currentStats = await stat(absolutePath);
+          const modifiedAt = currentStats.mtime.toISOString();
+          const modifiedAtMs = Date.parse(modifiedAt);
+          if (Number.isNaN(modifiedAtMs) || modifiedAtMs <= indexedAtMs) {
+            continue;
+          }
+
+          staleFiles.push({
+            filePath: result.filePath,
+            indexedAt,
+            modifiedAt,
+            staleSecs: Math.floor((modifiedAtMs - indexedAtMs) / 1000),
+          });
+        } catch {
+          // File could be deleted/moved; skip stale check for this entry.
+        }
       }
 
-      const ageMinutes = Math.floor(ageSeconds / 60);
-      return `Index is ${ageMinutes} minutes old. Call update_codebase_scan('${codebaseName}') to refresh.`;
+      return staleFiles;
     } catch {
-      return null;
+      return [];
     }
   }
 

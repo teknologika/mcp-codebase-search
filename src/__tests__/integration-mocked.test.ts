@@ -198,7 +198,7 @@ export class UserManager {
           path: '/test/path',
           chunkCount: 100,
           fileCount: 10,
-          lastIngestion: '2024-01-01T00:00:00Z',
+          lastModified: '2024-01-01T00:00:00Z',
           languages: ['typescript'],
         },
       ];
@@ -210,7 +210,7 @@ export class UserManager {
           path: '/test/path',
           chunkCount: 100,
           fileCount: 10,
-          lastIngestion: '2024-01-01T00:00:00Z',
+          lastModified: '2024-01-01T00:00:00Z',
           languages: [{ language: 'typescript', fileCount: 10, chunkCount: 100 }],
           chunkTypes: [{ type: 'function', count: 100 }],
           sizeBytes: 50000,
@@ -299,7 +299,7 @@ export class UserManager {
           path: '/test',
           chunkCount: 50,
           fileCount: 5,
-          lastIngestion: '2024-01-01T00:00:00Z',
+          lastModified: '2024-01-01T00:00:00Z',
           languages: ['typescript'],
         },
       ];

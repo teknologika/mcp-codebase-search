@@ -19,6 +19,7 @@ describe('CodebaseService', () => {
     // Create mock LanceDB client
     mockLanceClient = {
       listAllMetadata: vi.fn(),
+      getMetadata: vi.fn(),
       listTables: vi.fn(),
       getOrCreateTable: vi.fn(),
       tableExists: vi.fn(),
@@ -57,14 +58,14 @@ describe('CodebaseService', () => {
       const mockTables = [
         {
           name: 'codebase_test-project_1_0_0',
-          metadata: {
-            codebaseName: 'test-project',
-            path: '/path/to/project',
-            fileCount: 10,
-            lastIngestion: '2024-01-01T00:00:00Z',
-            languages: ['typescript', 'javascript'],
+            metadata: {
+              codebaseName: 'test-project',
+              path: '/path/to/project',
+              fileCount: 10,
+              lastModified: '2024-01-01T00:00:00Z',
+              languages: ['typescript', 'javascript'],
+            },
           },
-        },
       ];
 
       const mockTable = {
@@ -108,10 +109,9 @@ describe('CodebaseService', () => {
         path: '/path/to/project',
         chunkCount: 50,
         fileCount: 10,
-        lastIngestion: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
         languages: ['typescript', 'javascript'],
       });
-      expect(result[0].lastScanAge).toBeGreaterThanOrEqual(0);
     });
 
     it('should skip tables without codebaseName metadata', async () => {
@@ -245,12 +245,67 @@ describe('CodebaseService', () => {
       expect(mockWhere).toHaveBeenCalledOnce();
     });
 
-    it('should recover from small line drift with fuzzy matching', async () => {
+    it('should recover when the requested startLine falls inside a chunk', async () => {
+      const containmentRow = {
+        filePath: 'src/test.ts',
+        language: 'typescript',
+        startLine: 331,
+        endLine: 398,
+        content: 'function test() {}',
+      };
+
+      const mockWhere = vi.fn((clause: string) => {
+        if (clause.includes("startLine` = 340") && clause.includes("endLine` = 350")) {
+          return {
+            limit: vi.fn().mockReturnValue({
+              toArray: vi.fn().mockResolvedValue([]),
+            }),
+          };
+        }
+
+        if (clause.includes("startLine` <= 340") && clause.includes("endLine` >= 340")) {
+          return {
+            toArray: vi.fn().mockResolvedValue([containmentRow]),
+          };
+        }
+
+        return {
+          limit: vi.fn().mockReturnValue({
+            toArray: vi.fn().mockResolvedValue([]),
+          }),
+          toArray: vi.fn().mockResolvedValue([]),
+        };
+      });
+
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          where: mockWhere,
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const result = await service.getChunkContent('test-project', 'src/test.ts', 340, 350);
+
+      expect(result).toMatchObject({
+        codebaseName: 'test-project',
+        filePath: 'src/test.ts',
+        startLine: 331,
+        endLine: 398,
+        language: 'typescript',
+        chunkType: 'unknown',
+        content: 'function test() {}',
+        lineNumberDrift: 9,
+      });
+      expect(mockWhere).toHaveBeenCalledTimes(2);
+    });
+
+    it('should recover with widened fuzzy matching when no chunk contains the line', async () => {
       const fuzzyRow = {
         filePath: 'src/test.ts',
         language: 'typescript',
-        startLine: 15,
-        endLine: 25,
+        startLine: 30,
+        endLine: 40,
         content: 'function test() {}',
       };
 
@@ -263,7 +318,13 @@ describe('CodebaseService', () => {
           };
         }
 
-        if (clause.includes("startLine` >= 5") && clause.includes("startLine` <= 15")) {
+        if (clause.includes("startLine` <= 10") && clause.includes("endLine` >= 10")) {
+          return {
+            toArray: vi.fn().mockResolvedValue([]),
+          };
+        }
+
+        if (clause.includes("startLine` >= -15") && clause.includes("startLine` <= 35")) {
           return {
             toArray: vi.fn().mockResolvedValue([fuzzyRow]),
           };
@@ -290,14 +351,14 @@ describe('CodebaseService', () => {
       expect(result).toMatchObject({
         codebaseName: 'test-project',
         filePath: 'src/test.ts',
-        startLine: 15,
-        endLine: 25,
+        startLine: 30,
+        endLine: 40,
         language: 'typescript',
         chunkType: 'unknown',
         content: 'function test() {}',
-        lineNumberDrift: 5,
+        lineNumberDrift: 20,
       });
-      expect(mockWhere).toHaveBeenCalledTimes(2);
+      expect(mockWhere).toHaveBeenCalledTimes(3);
     });
 
     it('should throw a not-found error when no chunk is within tolerance', async () => {
@@ -330,9 +391,12 @@ describe('CodebaseService', () => {
 
       await expect(request).rejects.toThrow(CodebaseError);
       await expect(request).rejects.toThrow(
-        "Chunk not found after trying original path 'src/test.ts' and normalized path 'src/test.ts'"
+        "Failed to get chunk content for src/test.ts:10-20 in codebase 'test-project'"
       );
-      expect(mockWhere).toHaveBeenCalledTimes(2);
+      await expect(request).rejects.toThrow(
+        "Chunk not found for 'src/test.ts' around lines 10–20 in codebase 'test-project'. Use search_codebases to find valid line numbers for this file."
+      );
+      expect(mockWhere).toHaveBeenCalledTimes(3);
     });
 
     it('should fail fast when an absolute path cannot be normalized', async () => {

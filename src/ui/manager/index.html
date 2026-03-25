@@ -628,7 +628,7 @@
       const detailsContent = document.getElementById('detailsContent');
 
       // Format date
-      const lastIngestion = new Date(stats.lastIngestion).toLocaleString();
+      const lastModified = new Date(stats.lastModified).toLocaleString();
 
       detailsContent.innerHTML = `
         <div class="stats-grid">
@@ -641,8 +641,8 @@
             <div class="stat-value">${stats.fileCount.toLocaleString()}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Last Ingestion</div>
-            <div class="stat-value" style="font-size: 14px;">${lastIngestion}</div>
+            <div class="stat-label">Last Modified</div>
+            <div class="stat-value" style="font-size: 14px;">${lastModified}</div>
           </div>
         </div>
 
@@ -692,9 +692,8 @@
 
     // Load chunk sets for a codebase
     async function loadChunkSets(codebaseName) {
-      // Note: This is a simplified version. In a real implementation,
-      // you would need an API endpoint to list all unique ingestion timestamps
-      // For now, we'll show the last ingestion timestamp
+      // Note: ingestion timestamps are internal-only and not exposed in public APIs.
+      // We currently don't expose chunk-set history in this view.
       const chunkSetsContent = document.getElementById('chunkSetsContent');
       
       if (!selectedCodebaseStats) {
@@ -702,18 +701,12 @@
         return;
       }
 
-      const timestamp = selectedCodebaseStats.lastIngestion;
-      const date = new Date(timestamp).toLocaleString();
-
       chunkSetsContent.innerHTML = `
         <div class="chunk-set-item">
           <div class="chunk-set-info">
-            <div class="chunk-set-timestamp">${escapeHtml(timestamp)}</div>
-            <div class="chunk-set-date">${date}</div>
+            <div class="chunk-set-timestamp">Ingestion history is internal</div>
+            <div class="chunk-set-date">Run update scan to refresh indexed data</div>
           </div>
-          <button class="btn-danger btn-small" onclick="openDeleteChunkSetModal('${escapeHtml(codebaseName)}', '${escapeHtml(timestamp)}')">
-            Delete
-          </button>
         </div>
       `;
     }

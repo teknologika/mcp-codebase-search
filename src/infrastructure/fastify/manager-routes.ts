@@ -126,7 +126,7 @@ export async function registerManagerRoutes(
     try {
       const codebases = await codebaseService.listCodebases();
       
-      logger.debug('Codebases loaded', { count: codebases.length, codebases: codebases.map(c => ({ name: c.name, fileCount: c.fileCount, lastIngestion: c.lastIngestion })) });
+      logger.debug('Codebases loaded', { count: codebases.length, codebases: codebases.map(c => ({ name: c.name, fileCount: c.fileCount, lastModified: c.lastModified })) });
       
       // Get flash messages using reply.flash()
       const flashMessages = (reply as any).flash();

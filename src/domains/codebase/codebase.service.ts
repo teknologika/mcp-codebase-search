@@ -30,18 +30,26 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function getScanAgeSeconds(lastIngestion: string): number | undefined {
-  if (!lastIngestion) {
-    return undefined;
+function isNewerTimestamp(candidate?: string, currentMax?: string): boolean {
+  if (!candidate) {
+    return false;
   }
 
-  const parsed = Date.parse(lastIngestion);
-  if (Number.isNaN(parsed)) {
-    return undefined;
+  const candidateMs = Date.parse(candidate);
+  if (Number.isNaN(candidateMs)) {
+    return false;
   }
 
-  const ageSeconds = Math.floor((Date.now() - parsed) / 1000);
-  return ageSeconds >= 0 ? ageSeconds : undefined;
+  if (!currentMax) {
+    return true;
+  }
+
+  const currentMaxMs = Date.parse(currentMax);
+  if (Number.isNaN(currentMaxMs)) {
+    return true;
+  }
+
+  return candidateMs > currentMaxMs;
 }
 
 /**
@@ -85,18 +93,15 @@ export class CodebaseService {
           });
 
           for (const meta of metadataList) {
-            const lastIngestion = meta.lastIngested;
             codebaseNames.add(meta.name);
             codebases.push({
               name: meta.name,
               path: meta.path,
               chunkCount: meta.chunkCount,
               fileCount: meta.fileCount,
-              lastIngestion,
-              lastScanAge: getScanAgeSeconds(lastIngestion),
               languages: meta.languages.map((l: any) => l.language || l),
               createdAt: meta.createdAt,
-              lastModified: meta.lastModified,
+              lastModified: meta.lastModified || '',
               tableName: meta.tableName,
               status: meta.status,
               lastError: meta.lastError,
@@ -128,7 +133,7 @@ export class CodebaseService {
 
           let path = '';
           let fileCount = 0;
-          let lastIngestion = '';
+          let lastModified = '';
           let languages: string[] = [];
 
           try {
@@ -136,15 +141,22 @@ export class CodebaseService {
             if (sample.length > 0) {
               const firstRow = sample[0];
               path = firstRow._path || '';
-              lastIngestion = firstRow._lastIngestion || firstRow._createdAt || '';
+              lastModified = firstRow.fileMtime || firstRow.ingestionTimestamp || firstRow._lastIngestion || firstRow._createdAt || '';
 
-              const allRows = await lanceTable.query().select(['language', 'filePath']).toArray();
+              const allRows = await lanceTable
+                .query()
+                .select(['language', 'filePath', 'fileMtime', 'ingestionTimestamp'])
+                .toArray();
               const uniqueFiles = new Set<string>();
               const uniqueLanguages = new Set<string>();
 
               for (const row of allRows) {
                 if (row.filePath) uniqueFiles.add(row.filePath);
                 if (row.language) uniqueLanguages.add(row.language);
+                const candidate = row.fileMtime || row.ingestionTimestamp || '';
+                if (isNewerTimestamp(candidate, lastModified)) {
+                  lastModified = candidate;
+                }
               }
 
               fileCount = uniqueFiles.size;
@@ -162,9 +174,8 @@ export class CodebaseService {
             path,
             chunkCount: count,
             fileCount,
-            lastIngestion,
-            lastScanAge: getScanAgeSeconds(lastIngestion),
             languages,
+            lastModified,
             status: count === 0 ? 'empty' : 'active',
           });
         } catch (err: unknown) {
@@ -173,8 +184,8 @@ export class CodebaseService {
             path: '',
             chunkCount: 0,
             fileCount: 0,
-            lastIngestion: '',
             languages: [],
+            lastModified: '',
             status: 'corrupted',
             lastError: getErrorMessage(err),
           });
@@ -224,7 +235,20 @@ export class CodebaseService {
       const fileSet = new Set<string>();
       let totalSize = 0;
       let path = '';
-      let lastIngestion = '';
+      let lastModified = '';
+
+      try {
+        const metadata = await this.lanceClient.getMetadata(name);
+        if (metadata) {
+          path = metadata.path || path;
+          lastModified = metadata.lastModified || '';
+        }
+      } catch (error) {
+        logger.warn('Failed to read metadata for codebase stats, using row fallback', {
+          codebaseName: name,
+          error: getErrorMessage(error),
+        });
+      }
 
       for (const row of rows) {
         const language = row.language || 'unknown';
@@ -232,10 +256,11 @@ export class CodebaseService {
         const chunkType = row.chunkType || 'unknown';
         const content = row.content || '';
 
-        // Get metadata from first row
+        // Fallback metadata from rows for older indexes
         if (!path && row._path) path = row._path;
-        if (!lastIngestion && (row._lastIngestion || row._createdAt)) {
-          lastIngestion = row._lastIngestion || row._createdAt;
+        const candidateLastModified = row.fileMtime || row.ingestionTimestamp || row._lastIngestion || row._createdAt || '';
+        if (isNewerTimestamp(candidateLastModified, lastModified)) {
+          lastModified = candidateLastModified;
         }
 
         fileSet.add(filePath);
@@ -274,7 +299,7 @@ export class CodebaseService {
         path,
         chunkCount,
         fileCount: fileSet.size,
-        lastIngestion,
+        lastModified,
         languages,
         chunkTypes,
         sizeBytes: totalSize,
@@ -524,11 +549,12 @@ export class CodebaseService {
         if (!filePath) continue;
 
         if (!filesMap.has(filePath)) {
+          const rowFileMtime = row.fileMtime || row.ingestionTimestamp || '';
           filesMap.set(filePath, {
             filePath,
             language: (row.language || 'javascript') as Language,
             chunkCount: 0,
-            lastIngestion: row.ingestionTimestamp || '',
+            fileMtime: rowFileMtime,
             sizeBytes: 0,
             isTestFile: row.isTestFile || false,
             isLibraryFile: row.isLibraryFile || false,
@@ -540,9 +566,10 @@ export class CodebaseService {
         file.chunkCount++;
         file.sizeBytes += (row.content || '').length;
 
-        // Update to latest ingestion timestamp and hash
-        if (row.ingestionTimestamp && row.ingestionTimestamp > file.lastIngestion) {
-          file.lastIngestion = row.ingestionTimestamp;
+        // Keep latest file mtime defensively. Fallback for pre-migration rows uses ingestionTimestamp.
+        const candidateFileMtime = row.fileMtime || row.ingestionTimestamp || '';
+        if (isNewerTimestamp(candidateFileMtime, file.fileMtime)) {
+          file.fileMtime = candidateFileMtime;
           file.fileHash = row.fileHash || '';
         }
       }
@@ -749,16 +776,42 @@ export class CodebaseService {
       let lineNumberDrift: number | undefined;
 
       if (!row) {
+        // Strategy 1: containment match — find a chunk that contains the requested startLine.
+        // This handles the common case where the LLM requests a line that falls inside a chunk.
+        const containmentRows = await table
+          .query()
+          .where(
+            `\`filePath\` = '${escapedFilePath}' AND \`startLine\` <= ${startLine} AND \`endLine\` >= ${startLine}`
+          )
+          .toArray();
+
+        if (containmentRows.length > 0) {
+          // Pick the chunk whose startLine is closest to the requested startLine
+          row = containmentRows.reduce((closest, candidate) => {
+            const closestDist = Math.abs(Number(closest.startLine || 0) - startLine);
+            const candidateDist = Math.abs(Number(candidate.startLine || 0) - startLine);
+            return candidateDist < closestDist ? candidate : closest;
+          }, containmentRows[0]);
+
+          const actualStartLine = Number(row.startLine || 0);
+          lineNumberDrift = Math.abs(startLine - actualStartLine);
+        }
+      }
+
+      if (!row) {
+        // Strategy 2: narrow fuzzy match — find a chunk whose startLine is within ±25 lines.
+        // Wider than the old ±5 to handle gaps between chunks in large files.
         const fuzzyRows = await table
           .query()
           .where(
-            `\`filePath\` = '${escapedFilePath}' AND \`startLine\` >= ${startLine - 5} AND \`startLine\` <= ${startLine + 5}`
+            `\`filePath\` = '${escapedFilePath}' AND \`startLine\` >= ${startLine - 25} AND \`startLine\` <= ${startLine + 25}`
           )
           .toArray();
 
         if (fuzzyRows.length === 0) {
           throw new CodebaseError(
-            `Chunk not found after trying original path '${filePath}' and normalized path '${normalizedFilePath}' with lines ${startLine}-${endLine} in codebase '${codebaseName}'`
+            `Chunk not found for '${normalizedFilePath}' around lines ${startLine}–${endLine} in codebase '${codebaseName}'. ` +
+            `Use search_codebases to find valid line numbers for this file.`
           );
         }
 

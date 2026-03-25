@@ -213,6 +213,7 @@ export class IngestionService {
             isTestFile: classification.isTest,
             isLibraryFile: classification.isLibrary,
             fileHash,
+            fileMtime: file.mtime.toISOString(),
             // Store full file content only on the first chunk to avoid duplication
             fullFileContent: index === 0 ? fullFileContent : undefined,
           }));
@@ -312,6 +313,7 @@ export class IngestionService {
 
       // Phase 6: Write metadata
       this.logger.info('Phase 5: Writing metadata');
+      const maxFileMtime = this.getMaxTimestampFromChunks(allChunks);
       await this.writeMetadata(
         codebaseName,
         codebasePath,
@@ -319,6 +321,7 @@ export class IngestionService {
         supportedFiles.length,
         languageStats,
         ingestionTimestamp,
+        maxFileMtime,
         totalSizeBytes,
         chunkTypeMap
       );
@@ -503,6 +506,7 @@ export class IngestionService {
         isTestFile: chunk.isTestFile || false,
         isLibraryFile: chunk.isLibraryFile || false,
         fileHash: chunk.fileHash || '',
+        fileMtime: chunk.fileMtime || '',
         fullFileContent: chunk.fullFileContent || null, // Store full file content if available
         ingestionTimestamp,
         _codebaseName: codebaseName,
@@ -865,6 +869,7 @@ export class IngestionService {
               isTestFile: classification.isTest,
               isLibraryFile: classification.isLibrary,
               fileHash,
+              fileMtime: file.mtime.toISOString(),
               // Store full file content only on the first chunk to avoid duplication
               fullFileContent: index === 0 ? fullFileContent : undefined,
             }));
@@ -919,13 +924,18 @@ export class IngestionService {
         const fileSet = new Set<string>();
         let rescanSizeBytes = 0;
         const rescanChunkTypeMap = new Map<string, number>();
+        let maxFileMtime = '';
 
         for (const row of rows) {
           const language = row.language || 'unknown';
           const filePath = row.filePath || '';
+          const candidateFileMtime = row.fileMtime || row.ingestionTimestamp || '';
           
           fileSet.add(filePath);
           rescanSizeBytes += (row.content || '').length;
+          if (this.isNewerTimestamp(candidateFileMtime, maxFileMtime)) {
+            maxFileMtime = candidateFileMtime;
+          }
 
           if (!languageMap.has(language)) {
             languageMap.set(language, { fileCount: new Set(), chunkCount: 0 });
@@ -953,6 +963,7 @@ export class IngestionService {
           fileSet.size,
           languageStats,
           rescanTimestamp,
+          maxFileMtime || undefined,
           rescanSizeBytes,
           rescanChunkTypeMap
         );
@@ -1031,6 +1042,7 @@ export class IngestionService {
     fileCount: number,
     languageStats: Map<string, { fileCount: number; chunkCount: number }>,
     ingestionTimestamp: string,
+    lastModified?: string,
     sizeBytes?: number,
     chunkTypes?: Map<string, number>
   ): Promise<void> {
@@ -1040,22 +1052,7 @@ export class IngestionService {
 
       const chunkTypeMap = chunkTypes ?? new Map<string, number>();
       const computedSizeBytes = sizeBytes ?? 0;
-
-      // Calculate last modified time from filesystem
-      const { stat } = await import('fs/promises');
-      let lastModified = ingestionTimestamp;
-
-      try {
-        // Get the most recent file modification time
-        const stats = await stat(codebasePath);
-        lastModified = stats.mtime.toISOString();
-      } catch (_error) {
-        // Use ingestion timestamp if we can't read filesystem
-        this.logger.warn('Could not read filesystem mtime, using ingestion timestamp', {
-          codebaseName,
-          codebasePath,
-        });
-      }
+      const computedLastModified = lastModified || ingestionTimestamp;
 
       // Prepare metadata
       const metadata = {
@@ -1063,7 +1060,7 @@ export class IngestionService {
         path: codebasePath,
         createdAt: existingMetadata?.createdAt || ingestionTimestamp,
         lastIngested: ingestionTimestamp,
-        lastModified,
+        lastModified: computedLastModified,
         chunkCount,
         fileCount,
         sizeBytes: computedSizeBytes,
@@ -1096,6 +1093,40 @@ export class IngestionService {
         { codebaseName }
       );
     }
+  }
+
+  private getMaxTimestampFromChunks(chunks: Chunk[]): string | undefined {
+    let maxTimestamp = '';
+
+    for (const chunk of chunks) {
+      if (this.isNewerTimestamp(chunk.fileMtime, maxTimestamp)) {
+        maxTimestamp = chunk.fileMtime!;
+      }
+    }
+
+    return maxTimestamp || undefined;
+  }
+
+  private isNewerTimestamp(candidate?: string, currentMax?: string): boolean {
+    if (!candidate) {
+      return false;
+    }
+
+    const candidateMs = Date.parse(candidate);
+    if (Number.isNaN(candidateMs)) {
+      return false;
+    }
+
+    if (!currentMax) {
+      return true;
+    }
+
+    const currentMaxMs = Date.parse(currentMax);
+    if (Number.isNaN(currentMaxMs)) {
+      return true;
+    }
+
+    return candidateMs > currentMaxMs;
   }
 
 

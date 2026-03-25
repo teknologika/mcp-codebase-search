@@ -37,6 +37,7 @@ export interface ScannedFile {
   extension: string;
   supported: boolean;
   language: string | null;
+  mtime: Date;
 }
 
 /**
@@ -214,8 +215,9 @@ export class FileScannerService {
         );
       } else if (entry.isFile()) {
         // Check file size
+        let stats: Awaited<ReturnType<typeof fs.stat>>;
         try {
-          const stats = await fs.stat(fullPath);
+          stats = await fs.stat(fullPath);
           if (stats.size > maxFileSize) {
             logger.debug(
               'Skipping file (too large)',
@@ -249,6 +251,7 @@ export class FileScannerService {
           extension: classification.extension,
           supported: classification.supported,
           language: classification.language,
+          mtime: stats.mtime,
         });
       }
     }

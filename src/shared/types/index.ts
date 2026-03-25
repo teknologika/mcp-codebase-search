@@ -81,6 +81,7 @@ export interface Chunk {
   isTestFile?: boolean;
   isLibraryFile?: boolean;
   fileHash?: string; // MD5 hash of the source file (added during ingestion)
+  fileMtime?: string; // ISO 8601 - file mtime at time of ingestion
   fullFileContent?: string; // Complete file content (stored once per file for portability)
 }
 
@@ -92,11 +93,9 @@ export interface CodebaseMetadata {
   path: string;
   chunkCount: number;
   fileCount: number;
-  lastIngestion: string; // ISO 8601 timestamp
-  lastScanAge?: number; // Seconds since last ingestion
   languages: string[];
   createdAt?: string; // ISO 8601 timestamp - when first ingested
-  lastModified?: string; // ISO 8601 timestamp - last file modification in codebase
+  lastModified?: string; // ISO 8601 timestamp - max file mtime across indexed files
   tableName?: string; // LanceDB table name
   status?: 'active' | 'corrupted' | 'empty';
   lastError?: string; // Last error message if any
@@ -109,7 +108,7 @@ export interface FileInfo {
   filePath: string;
   language: Language;
   chunkCount: number;
-  lastIngestion: string;
+  fileMtime: string; // ISO 8601 - mtime of file on disk when indexed
   sizeBytes: number;
   isTestFile: boolean;
   isLibraryFile: boolean;
@@ -176,7 +175,7 @@ export interface CodebaseStats {
   path: string;
   chunkCount: number;
   fileCount: number;
-  lastIngestion: string;
+  lastModified: string; // ISO 8601 timestamp - max file mtime across indexed files
   languages: LanguageStats[];
   chunkTypes: ChunkTypeStats[];
   sizeBytes: number;

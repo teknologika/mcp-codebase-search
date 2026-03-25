@@ -47,7 +47,7 @@ describe('Fastify API Routes', () => {
           path: '/path/to/codebase',
           chunkCount: 100,
           fileCount: 10,
-          lastIngestion: '2024-01-01T00:00:00Z',
+          lastModified: '2024-01-01T00:00:00Z',
           languages: ['typescript', 'javascript'],
         },
       ];
@@ -216,7 +216,7 @@ describe('Fastify API Routes', () => {
         path: '/path/to/codebase',
         chunkCount: 100,
         fileCount: 10,
-        lastIngestion: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
         languages: [
           { language: 'typescript', fileCount: 8, chunkCount: 80 },
           { language: 'javascript', fileCount: 2, chunkCount: 20 },

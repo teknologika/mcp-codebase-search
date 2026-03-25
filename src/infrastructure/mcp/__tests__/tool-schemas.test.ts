@@ -65,7 +65,7 @@ describe('MCP Tool Schemas', () => {
             path: '/path/to/project',
             chunkCount: 100,
             fileCount: 20,
-            lastIngestion: '2024-01-01T00:00:00Z',
+            lastModified: '2024-01-01T00:00:00Z',
             languages: ['typescript', 'javascript'],
           },
         ],
@@ -95,7 +95,7 @@ describe('MCP Tool Schemas', () => {
             path: '/path/to/project',
             chunkCount: -1,
             fileCount: 20,
-            lastIngestion: '2024-01-01T00:00:00Z',
+            lastModified: '2024-01-01T00:00:00Z',
             languages: ['typescript'],
           },
         ],
@@ -184,6 +184,7 @@ describe('MCP Tool Schemas', () => {
         ],
         totalResults: 1,
         queryTime: 45,
+        staleFiles: [],
       };
       expect(validate(output)).toBe(true);
     });
@@ -205,6 +206,7 @@ describe('MCP Tool Schemas', () => {
         ],
         totalResults: 1,
         queryTime: 45,
+        staleFiles: [],
       };
       expect(validate(output)).toBe(true);
     });
@@ -226,6 +228,7 @@ describe('MCP Tool Schemas', () => {
         ],
         totalResults: 1,
         queryTime: 45,
+        staleFiles: [],
       };
       expect(validate(output)).toBe(false);
     });
@@ -247,6 +250,7 @@ describe('MCP Tool Schemas', () => {
         ],
         totalResults: 1,
         queryTime: 45,
+        staleFiles: [],
       };
       expect(validate(output)).toBe(false);
     });
@@ -285,7 +289,7 @@ describe('MCP Tool Schemas', () => {
         path: '/path/to/project',
         chunkCount: 100,
         fileCount: 20,
-        lastIngestion: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
         languages: [
           {
             language: 'typescript',
@@ -334,7 +338,7 @@ describe('MCP Tool Schemas', () => {
         path: '/path/to/project',
         chunkCount: 100,
         fileCount: 20,
-        lastIngestion: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
         languages: [],
         chunkTypes: [
           {
@@ -572,7 +576,7 @@ describe('MCP Tool Schemas', () => {
             path: '/test',
             chunkCount: -1,
             fileCount: 0,
-            lastIngestion: '2024-01-01T00:00:00Z',
+            lastModified: '2024-01-01T00:00:00Z',
             languages: [],
           },
         ],
@@ -603,6 +607,7 @@ describe('MCP Tool Schemas', () => {
         ],
         totalResults: 1,
         queryTime: 10,
+        staleFiles: [],
       };
       expect(validate(output)).toBe(false);
     });
@@ -624,6 +629,7 @@ describe('MCP Tool Schemas', () => {
         ],
         totalResults: 1,
         queryTime: 10,
+        staleFiles: [],
       });
 
       expect(validate(createOutput(-0.1))).toBe(false);

@@ -40,6 +40,7 @@ describe('FileScannerService', () => {
       expect(statistics.totalFiles).toBe(3);
       expect(statistics.supportedFiles).toBe(3);
       expect(statistics.unsupportedFiles).toBe(0);
+      expect(files.every(file => file.mtime instanceof Date)).toBe(true);
     });
 
     it('should discover files in nested subdirectories', async () => {
