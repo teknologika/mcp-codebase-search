@@ -61,50 +61,25 @@ describe('Fastify Manager Routes', () => {
     await fastify.close();
   });
 
-  describe('Origin checks', () => {
-    it('should reject cross-origin ingest requests', async () => {
+  describe('Manager actions', () => {
+    it('should rename a codebase and redirect on valid form submission', async () => {
+      vi.mocked(mockCodebaseService.renameCodebase).mockResolvedValue(undefined);
+
       const response = await fastify.inject({
         method: 'POST',
-        url: '/ingest',
-        headers: {
-          origin: 'http://evil.example.com',
-        },
-        payload: {},
-      });
-
-      expect(response.statusCode).toBe(403);
-    });
-
-    it('should reject cross-origin delete requests', async () => {
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/delete',
-        headers: {
-          origin: 'http://evil.example.com',
-        },
+        url: '/rename',
         payload: {
-          name: 'test-project',
+          oldName: 'old-project',
+          newName: 'New Project',
         },
       });
 
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toBe('/');
+      expect(mockCodebaseService.renameCodebase).toHaveBeenCalledWith('old-project', 'new-project');
     });
 
-    it('should allow localhost ingest requests to reach validation', async () => {
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/ingest',
-        headers: {
-          origin: 'http://localhost:8008',
-        },
-        payload: {},
-      });
-
-      expect(response.statusCode).toBe(400);
-      expect(response.statusCode).not.toBe(403);
-    });
-
-    it('should allow delete requests with no origin header', async () => {
+    it('should delete a codebase and redirect on valid form submission', async () => {
       vi.mocked(mockCodebaseService.deleteCodebase).mockResolvedValue(undefined);
 
       const response = await fastify.inject({
@@ -116,7 +91,7 @@ describe('Fastify Manager Routes', () => {
       });
 
       expect(response.statusCode).toBe(302);
-      expect(response.statusCode).not.toBe(403);
+      expect(response.headers.location).toBe('/');
       expect(mockCodebaseService.deleteCodebase).toHaveBeenCalledWith('test-project');
     });
   });

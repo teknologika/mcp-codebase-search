@@ -30,20 +30,6 @@ interface IngestionJob {
 
 const ingestionJobs = new Map<string, IngestionJob>();
 
-function isAllowedOrigin(request: FastifyRequest): boolean {
-  const origin = request.headers.origin;
-
-  // Allow requests with no origin (direct browser navigation, curl, etc.)
-  if (!origin) return true;
-
-  // Allow localhost origins only
-  return (
-    origin.startsWith('http://localhost') ||
-    origin.startsWith('http://127.0.0.1') ||
-    origin.startsWith('http://[::1]')
-  );
-}
-
 /**
  * Register Manager UI routes
  */
@@ -234,10 +220,6 @@ export async function registerManagerRoutes(
     const { name, path, respectGitignore } = request.body as { name: string; path: string; respectGitignore?: string };
     
     try {
-      if (!isAllowedOrigin(request)) {
-        return reply.status(403).send({ error: 'Forbidden' });
-      }
-
       logger.info('POST /ingest - received request', { name, path, respectGitignore, body: request.body });
       
       // Validation
@@ -412,10 +394,6 @@ export async function registerManagerRoutes(
     const { oldName, newName } = request.body as { oldName: string; newName: string };
     
     try {
-      if (!isAllowedOrigin(request)) {
-        return reply.status(403).send({ error: 'Forbidden' });
-      }
-
       logger.info('POST /rename', { oldName, newName });
       
       if (!oldName || !newName) {
@@ -460,10 +438,6 @@ export async function registerManagerRoutes(
     const { name } = request.body as { name: string };
     
     try {
-      if (!isAllowedOrigin(request)) {
-        return reply.status(403).send({ error: 'Forbidden' });
-      }
-
       logger.info('POST /delete', { name });
       
       if (!name) {
@@ -518,10 +492,6 @@ export async function registerManagerRoutes(
       const { filePath } = request.body;
       
       try {
-        if (!isAllowedOrigin(request)) {
-          return reply.status(403).send({ error: 'Forbidden' });
-        }
-
         if (!filePath) {
           return reply.status(400).send({
             error: 'File path is required'
@@ -554,10 +524,6 @@ export async function registerManagerRoutes(
       const { name } = request.params;
       
       try {
-        if (!isAllowedOrigin(request)) {
-          return reply.status(403).send({ error: 'Forbidden' });
-        }
-
         logger.info('POST /api/codebases/:name/rescan', { name });
         
         // Get codebase path
