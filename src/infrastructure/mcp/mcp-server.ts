@@ -96,7 +96,7 @@ export class MCPServer {
     this.server = new Server(
       {
         name: '@teknologika/mcp-codebase-search',
-        version: '0.1.12',
+        version: '0.1.13',
       },
       {
         capabilities: {
