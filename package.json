@@ -1,6 +1,6 @@
 {
   "name": "@teknologika/mcp-codebase-search",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Local-first semantic codebase search for AI coding assistants using MCP, Tree-sitter parsing, and LanceDB vector storage",
   "type": "module",
   "engines": {
