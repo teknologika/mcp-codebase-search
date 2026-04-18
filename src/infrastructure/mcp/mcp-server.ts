@@ -96,7 +96,7 @@ export class MCPServer {
     this.server = new Server(
       {
         name: '@teknologika/mcp-codebase-search',
-        version: '0.1.13',
+        version: '0.1.15',
       },
       {
         capabilities: {
@@ -229,6 +229,7 @@ export class MCPServer {
     });
 
     const payload = {
+      query: results.query ?? input.query,
       results: formattedResults,
       totalResults: results.totalResults,
       queryTime: results.queryTime,
@@ -406,8 +407,20 @@ export class MCPServer {
         codebase.path
       );
       this.searchService.clearCache();
+      const lastChangedFilePaths = result.lastChangedFilePaths ?? [];
+      const hasLastMeaningfulChange = result.filesAdded + result.filesModified + result.filesDeleted === 0 && (result.lastChangedFiles || 0) > 0;
+      const lastMeaningfulChangeSummary = hasLastMeaningfulChange
+        ? ` Last meaningful change: ${result.lastChangedFiles} file${result.lastChangedFiles === 1 ? '' : 's'}${result.lastChangedAt ? ` at ${result.lastChangedAt}` : ''}.${lastChangedFilePaths.length > 0
+          ? ` Files: ${lastChangedFilePaths.slice(0, 5).join(', ')}${lastChangedFilePaths.length > 5 ? ` (+${lastChangedFilePaths.length - 5} more)` : ''}.`
+          : ''
+        }`
+        : '';
 
       const response = {
+        request: {
+          name,
+          verbose,
+        },
         name,
         path: codebase.path,
         filesScanned: result.filesScanned,
@@ -415,15 +428,21 @@ export class MCPServer {
         filesModified: result.filesModified,
         filesDeleted: result.filesDeleted,
         filesUnchanged: result.filesUnchanged,
+        filesIndexed: result.filesIndexed,
+        filesDropped: result.filesDropped,
         chunksAdded: result.chunksAdded,
         chunksDeleted: result.chunksDeleted,
         durationMs: result.durationMs,
+        lastChangedFiles: result.lastChangedFiles ?? 0,
+        lastChangedAt: result.lastChangedAt,
+        lastChangedFilePaths,
         cacheCleared: true,
-        message: `Successfully refreshed codebase '${name}': ${result.filesAdded} added, ${result.filesModified} modified, ${result.filesDeleted} deleted, ${result.filesUnchanged} unchanged`,
+        message: `Successfully refreshed codebase '${name}': ${result.filesAdded} added, ${result.filesModified} modified, ${result.filesDeleted} deleted, ${result.filesUnchanged} unchanged, ${result.filesIndexed} indexed, ${result.filesDropped} dropped${lastMeaningfulChangeSummary}`,
         ...(verbose ? {
           addedFilePaths: result.addedFilePaths || [],
           modifiedFilePaths: result.modifiedFilePaths || [],
           deletedFilePaths: result.deletedFilePaths || [],
+          droppedFilePaths: result.droppedFilePaths || [],
         } : {}),
       };
 

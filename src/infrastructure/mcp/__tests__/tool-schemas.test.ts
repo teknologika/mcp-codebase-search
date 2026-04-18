@@ -172,6 +172,7 @@ describe('MCP Tool Schemas', () => {
     it('should validate metadata-only search output', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
       const output = {
+        query: 'authentication function',
         results: [
           {
             filePath: 'src/auth.ts',
@@ -192,6 +193,7 @@ describe('MCP Tool Schemas', () => {
     it('should validate correct output', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
       const output = {
+        query: 'authentication function',
         results: [
           {
             filePath: 'src/auth.ts',
@@ -214,6 +216,7 @@ describe('MCP Tool Schemas', () => {
     it('should reject output with invalid similarity score', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
       const output = {
+        query: 'authentication function',
         results: [
           {
             filePath: 'src/auth.ts',
@@ -236,6 +239,7 @@ describe('MCP Tool Schemas', () => {
     it('should reject output with invalid line numbers', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
       const output = {
+        query: 'authentication function',
         results: [
           {
             filePath: 'src/auth.ts',
@@ -361,6 +365,65 @@ describe('MCP Tool Schemas', () => {
     it('should reject non-boolean verbose values', () => {
       const validate = ajv.compile(UPDATE_CODEBASE_SCAN_SCHEMA.inputSchema);
       expect(validate({ name: 'my-project', verbose: 'yes' })).toBe(false);
+    });
+
+    it('should validate output with indexed file counts', () => {
+      const validate = ajv.compile(UPDATE_CODEBASE_SCAN_SCHEMA.outputSchema);
+      expect(
+        validate({
+          request: {
+            name: 'my-project',
+            verbose: true,
+          },
+          name: 'my-project',
+          path: '/path/to/project',
+          filesScanned: 24,
+          filesAdded: 7,
+          filesModified: 0,
+          filesDeleted: 0,
+          filesUnchanged: 17,
+          filesIndexed: 17,
+          filesDropped: 7,
+          chunksAdded: 47,
+          chunksDeleted: 0,
+          lastChangedFiles: 7,
+          lastChangedAt: '2026-04-10T02:00:00.000Z',
+          lastChangedFilePaths: ['src/changed-one.ts', 'src/changed-two.ts'],
+          cacheCleared: true,
+          durationMs: 117,
+          droppedFilePaths: [
+            'config.example.json',
+            'docs/chisel-knowledge-mcp.md',
+            'src/domains/workspace/inbox-index.ts',
+          ],
+          message: 'Successfully refreshed codebase',
+        })
+      ).toBe(true);
+    });
+
+    it('should reject output missing indexed file counts', () => {
+      const validate = ajv.compile(UPDATE_CODEBASE_SCAN_SCHEMA.outputSchema);
+      expect(
+        validate({
+          request: {
+            name: 'my-project',
+            verbose: false,
+          },
+          name: 'my-project',
+          path: '/path/to/project',
+          filesScanned: 24,
+          filesAdded: 7,
+          filesModified: 0,
+          filesDeleted: 0,
+          filesUnchanged: 17,
+          chunksAdded: 47,
+          chunksDeleted: 0,
+          lastChangedFilePaths: ['src/changed-one.ts', 'src/changed-two.ts'],
+          cacheCleared: true,
+          durationMs: 117,
+          message: 'Successfully refreshed codebase',
+        })
+      ).toBe(false);
     });
   });
 
@@ -593,6 +656,7 @@ describe('MCP Tool Schemas', () => {
     it('should enforce enum values on chunkType in output', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
       const output = {
+        query: 'authentication function',
         results: [
           {
             filePath: 'test.ts',
@@ -615,6 +679,7 @@ describe('MCP Tool Schemas', () => {
     it('should enforce range on similarityScore', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
       const createOutput = (score: number) => ({
+        query: 'authentication function',
         results: [
           {
             filePath: 'test.ts',

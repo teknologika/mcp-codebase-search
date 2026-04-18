@@ -11,6 +11,23 @@ The MCP tool schemas define the input validation rules and output formats for ea
 - **Input schema**: JSON schema defining required and optional parameters with validation rules
 - **Output schema**: JSON schema defining the structure of successful responses
 
+## MCP Call Shape
+
+MCP clients discover tools with `tools/list` and execute them with `tools/call`.
+
+For `search_codebases`, the tool arguments look like this:
+
+```json
+{
+  "name": "search_codebases",
+  "arguments": {
+    "query": "codebase search"
+  }
+}
+```
+
+The bare object `{ "query": "codebase search" }` is only the tool arguments payload, not the full MCP request.
+
 ## Available Tools
 
 ### 1. `list_codebases`
@@ -27,7 +44,15 @@ Lists all indexed codebases with their metadata.
     path: string;
     chunkCount: number;
     fileCount: number;
-    lastIngestion: string; // ISO 8601 timestamp
+    lastIngested?: string; // ISO 8601 timestamp
+    lastModified: string; // ISO 8601 timestamp
+    lastScanAge?: number; // Seconds since last ingest/rescan
+    lastRescanChangedAt?: string; // ISO 8601 timestamp
+    lastRescanFilesChanged?: number;
+    lastRescanFilesAdded?: number;
+    lastRescanFilesModified?: number;
+    lastRescanFilesDeleted?: number;
+    lastRescanChangedFilePaths?: string[];
     languages: string[];
   }>;
 }
@@ -48,7 +73,15 @@ const output = {
       path: '/path/to/project',
       chunkCount: 1500,
       fileCount: 200,
-      lastIngestion: '2024-01-15T10:30:00Z',
+      lastIngested: '2024-01-15T10:30:00Z',
+      lastModified: '2024-01-15T10:30:00Z',
+      lastScanAge: 57,
+      lastRescanChangedAt: '2024-01-15T10:30:00Z',
+      lastRescanFilesChanged: 4,
+      lastRescanFilesAdded: 1,
+      lastRescanFilesModified: 2,
+      lastRescanFilesDeleted: 1,
+      lastRescanChangedFilePaths: ['src/a.ts', 'src/b.ts'],
       languages: ['typescript', 'javascript', 'python']
     }
   ]
@@ -74,6 +107,7 @@ Performs semantic search across indexed codebases.
 **Output**:
 ```typescript
 {
+  query: string;
   results: Array<{
     filePath: string;
     startLine: number;        // 1-indexed
@@ -106,6 +140,7 @@ const input = {
 
 // Expected output
 const output = {
+  query: 'authentication function',
   results: [
     {
       filePath: 'src/auth/authenticate.ts',
@@ -141,7 +176,15 @@ Retrieves detailed statistics for a specific codebase.
   path: string;
   chunkCount: number;
   fileCount: number;
-  lastIngestion: string;    // ISO 8601 timestamp
+  lastIngested?: string;    // ISO 8601 timestamp
+  lastModified: string;     // ISO 8601 timestamp
+  lastScanAge?: number;     // Seconds since last ingest/rescan
+  lastRescanChangedAt?: string;
+  lastRescanFilesChanged?: number;
+  lastRescanFilesAdded?: number;
+  lastRescanFilesModified?: number;
+  lastRescanFilesDeleted?: number;
+  lastRescanChangedFilePaths?: string[];
   languages: Array<{
     language: string;
     fileCount: number;
@@ -168,7 +211,15 @@ const output = {
   path: '/path/to/project',
   chunkCount: 1500,
   fileCount: 200,
-  lastIngestion: '2024-01-15T10:30:00Z',
+  lastIngested: '2024-01-15T10:30:00Z',
+  lastModified: '2024-01-15T10:30:00Z',
+  lastScanAge: 57,
+  lastRescanChangedAt: '2024-01-15T10:30:00Z',
+  lastRescanFilesChanged: 4,
+  lastRescanFilesAdded: 1,
+  lastRescanFilesModified: 2,
+  lastRescanFilesDeleted: 1,
+  lastRescanChangedFilePaths: ['src/a.ts', 'src/b.ts'],
   languages: [
     { language: 'typescript', fileCount: 150, chunkCount: 1200 },
     { language: 'javascript', fileCount: 30, chunkCount: 200 },
@@ -207,7 +258,36 @@ Retrieves the complete content of an indexed file.
 }
 ```
 
-### 5. `list_files`
+### 5. `get_chunk_content`
+
+Retrieves the content for a specific indexed chunk using a codebase name, file path, and line range.
+
+**Input**:
+```typescript
+{
+  codebaseName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+```
+
+**Output**:
+```typescript
+{
+  codebaseName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  language: string;
+  chunkType: string;
+  content: string;
+  lineNumberDrift?: number;
+  staleWarning?: string;
+}
+```
+
+### 6. `list_files`
 
 Lists all indexed files in a codebase with metadata.
 
@@ -225,7 +305,7 @@ Lists all indexed files in a codebase with metadata.
     filePath: string;
     language: string;
     chunkCount: number;
-    lastIngestion: string;
+    fileMtime: string;
     sizeBytes: number;
     isTestFile: boolean;
     isLibraryFile: boolean;
@@ -235,7 +315,7 @@ Lists all indexed files in a codebase with metadata.
 }
 ```
 
-### 6. `update_codebase_scan`
+### 7. `update_codebase_scan`
 
 Incrementally refreshes a codebase index after file changes.
 
@@ -250,6 +330,10 @@ Incrementally refreshes a codebase index after file changes.
 **Output**:
 ```typescript
 {
+  request: {
+    name: string;
+    verbose: boolean;
+  };
   name: string;
   path: string;
   filesScanned: number;
@@ -257,15 +341,23 @@ Incrementally refreshes a codebase index after file changes.
   filesModified: number;
   filesDeleted: number;
   filesUnchanged: number;
+  filesIndexed: number;
+  filesDropped: number;
   chunksAdded: number;
   chunksDeleted: number;
+  lastChangedFiles?: number;
+  lastChangedAt?: string;
+  lastChangedFilePaths: string[];
   cacheCleared: boolean;
   durationMs: number;
   message: string;
 }
 ```
 
-### 7. `get_adjacent_chunks`
+`filesIndexed` reports the number of unique files present in the index after the rescan. `filesDropped` highlights the gap between supported files scanned from disk and files that actually landed in the index.
+`lastChangedFiles`, `lastChangedAt`, and `lastChangedFilePaths` preserve the most recent meaningful rescan summary, even if a follow-up refresh finds no further diff.
+
+### 8. `get_adjacent_chunks`
 
 Retrieves the chunks immediately before and after a specific chunk in a file.
 
@@ -304,7 +396,7 @@ Retrieves the chunks immediately before and after a specific chunk in a file.
 }
 ```
 
-### 8. `open_codebase_manager`
+### 9. `open_codebase_manager`
 
 Opens the web-based codebase manager UI in the default browser.
 
@@ -371,6 +463,7 @@ addFormats(ajv);
 const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
 
 const output = {
+  query: 'authentication function',
   results: [...],
   totalResults: 10,
   queryTime: 45
@@ -409,7 +502,7 @@ if (validate(output)) {
 - `chunkType`: Must be one of: `function`, `class`, `method`, `interface`, `property`, `field`
 
 #### Format Fields
-- `lastIngestion`: Must be valid ISO 8601 date-time format
+- `lastIngested`: Must be valid ISO 8601 date-time format
 - `url`: Must be valid URI format
 
 ## TypeScript Types

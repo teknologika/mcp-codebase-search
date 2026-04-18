@@ -2,7 +2,7 @@
  * Unit tests for CodebaseService
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CodebaseService, CodebaseError } from '../codebase.service.js';
 import { LanceDBClientWrapper } from '../../../infrastructure/lancedb/lancedb.client.js';
 import type { Config } from '../../../shared/types/index.js';
@@ -29,6 +29,10 @@ describe('CodebaseService', () => {
     service = new CodebaseService(mockLanceClient, config);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('listCodebases', () => {
     it('should return empty array when no tables exist', async () => {
       vi.mocked(mockLanceClient.listTables).mockResolvedValue([]);
@@ -40,6 +44,8 @@ describe('CodebaseService', () => {
     });
 
     it('should return codebases with metadata', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2024-01-01T00:00:10Z'));
+
       vi.mocked(mockLanceClient.listAllMetadata).mockResolvedValue([
         {
           name: 'test-project',
@@ -50,6 +56,12 @@ describe('CodebaseService', () => {
           languages: ['typescript', 'javascript'],
           createdAt: '2024-01-01T00:00:00Z',
           lastModified: '2024-01-01T00:00:00Z',
+          lastRescanChangedAt: '2024-01-01T00:00:00Z',
+          lastRescanFilesChanged: 3,
+          lastRescanFilesAdded: 1,
+          lastRescanFilesModified: 1,
+          lastRescanFilesDeleted: 1,
+          lastRescanChangedFilePaths: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
           tableName: 'codebase_test-project_1_0_0',
           status: 'active',
         } as any,
@@ -109,7 +121,15 @@ describe('CodebaseService', () => {
         path: '/path/to/project',
         chunkCount: 50,
         fileCount: 10,
+        lastIngested: '2024-01-01T00:00:00Z',
         lastModified: '2024-01-01T00:00:00Z',
+        lastScanAge: 10,
+        lastRescanChangedAt: '2024-01-01T00:00:00Z',
+        lastRescanFilesChanged: 3,
+        lastRescanFilesAdded: 1,
+        lastRescanFilesModified: 1,
+        lastRescanFilesDeleted: 1,
+        lastRescanChangedFilePaths: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
         languages: ['typescript', 'javascript'],
       });
     });
@@ -192,6 +212,114 @@ describe('CodebaseService', () => {
 
       expect(result).toBe(0);
       expect(mockTable.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listFiles', () => {
+    it('should prefer the freshest indexed row when aggregating file metadata', async () => {
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              filePath: 'src/test.ts',
+              language: 'javascript',
+              fileMtime: '2024-01-01T00:00:00.000Z',
+              ingestionTimestamp: '2024-01-01T00:00:00.000Z',
+              content: 'old chunk',
+              isTestFile: false,
+              isLibraryFile: false,
+              fileHash: 'old-hash',
+            },
+            {
+              filePath: 'src/test.ts',
+              language: 'typescript',
+              fileMtime: '2024-01-02T00:00:00.000Z',
+              ingestionTimestamp: '2024-01-02T00:00:00.000Z',
+              content: 'new chunk',
+              isTestFile: true,
+              isLibraryFile: true,
+              fileHash: 'new-hash',
+            },
+          ]),
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const files = await service.listFiles('test-project');
+
+      expect(files).toEqual([
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          chunkCount: 2,
+          fileMtime: '2024-01-02T00:00:00.000Z',
+          sizeBytes: 'old chunk'.length + 'new chunk'.length,
+          isTestFile: true,
+          isLibraryFile: true,
+          fileHash: 'new-hash',
+        },
+      ]);
+    });
+  });
+
+  describe('getCodebaseStats', () => {
+    it('should include freshness metadata in the stats response', async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2024-01-01T00:00:10Z'));
+
+      vi.mocked(mockLanceClient.getMetadata).mockResolvedValue({
+        name: 'test-project',
+        path: '/path/to/project',
+        lastIngested: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
+        lastRescanChangedAt: '2024-01-01T00:00:00Z',
+        lastRescanFilesChanged: 2,
+        lastRescanFilesAdded: 1,
+        lastRescanFilesModified: 1,
+        lastRescanFilesDeleted: 0,
+        lastRescanChangedFilePaths: ['src/a.ts', 'src/b.ts'],
+      } as any);
+
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          toArray: vi.fn().mockResolvedValue([
+            {
+              filePath: 'src/a.ts',
+              language: 'typescript',
+              chunkType: 'function',
+              content: 'const a = 1;',
+              fileMtime: '2024-01-01T00:00:00Z',
+            },
+            {
+              filePath: 'src/b.ts',
+              language: 'typescript',
+              chunkType: 'class',
+              content: 'class B {}',
+              fileMtime: '2024-01-01T00:00:00Z',
+            },
+          ]),
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const result = await service.getCodebaseStats('test-project');
+
+      expect(result).toMatchObject({
+        name: 'test-project',
+        path: '/path/to/project',
+        chunkCount: 2,
+        fileCount: 2,
+        lastIngested: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
+        lastScanAge: 10,
+        lastRescanChangedAt: '2024-01-01T00:00:00Z',
+        lastRescanFilesChanged: 2,
+        lastRescanFilesAdded: 1,
+        lastRescanFilesModified: 1,
+        lastRescanFilesDeleted: 0,
+        lastRescanChangedFilePaths: ['src/a.ts', 'src/b.ts'],
+      });
     });
   });
 
@@ -546,6 +674,39 @@ describe('CodebaseService', () => {
       expect(result.filePath).toBe('src/test.ts');
       expect(getCodebasePathSpy).toHaveBeenCalledOnce();
       expect(where).toHaveBeenCalledWith("`filePath` = 'src/test.ts'");
+    });
+
+    it('should prefer the newest full file content when multiple indexed rows exist', async () => {
+      const toArray = vi.fn().mockResolvedValue([
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          fullFileContent: 'old content',
+          fileMtime: '2024-01-01T00:00:00.000Z',
+          ingestionTimestamp: '2024-01-01T00:00:00.000Z',
+        },
+        {
+          filePath: 'src/test.ts',
+          language: 'typescript',
+          fullFileContent: 'new content',
+          fileMtime: '2024-01-02T00:00:00.000Z',
+          ingestionTimestamp: '2024-01-02T00:00:00.000Z',
+        },
+      ]);
+      const where = vi.fn().mockReturnValue({
+        toArray,
+      });
+      const mockTable = {
+        query: vi.fn().mockReturnValue({
+          where,
+        }),
+      };
+
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(mockTable as any);
+
+      const result = await service.getFileContent('test-project', 'src/test.ts');
+
+      expect(result.content).toBe('new content');
     });
 
     it('should throw error when file not found in database', async () => {

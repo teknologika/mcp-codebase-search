@@ -162,6 +162,19 @@ describe('FileScannerService', () => {
       expect(statistics.totalFiles).toBe(1);
     });
 
+    it('should scan bin directories that contain source files', async () => {
+      await fs.mkdir(path.join(testDir, 'bin'), { recursive: true });
+      await fs.writeFile(path.join(testDir, 'bin', 'index.ts'), 'export const value = 1;');
+
+      const { files, statistics } = await service.scanDirectory(testDir);
+
+      expect(files).toHaveLength(1);
+      expect(files[0].relativePath).toBe(path.join('bin', 'index.ts'));
+      expect(files[0].supported).toBe(true);
+      expect(files[0].language).toBe('typescript');
+      expect(statistics.supportedFiles).toBe(1);
+    });
+
     it('should scan without .gitignore when respectGitignore is false', async () => {
       await fs.writeFile(
         path.join(testDir, '.gitignore'),

@@ -71,7 +71,6 @@ export class FileScannerService {
     '.pytest_cache',
     '.mypy_cache',
     'target', // Rust
-    'bin', // Java/C#
     'obj', // C#
   ]);
 

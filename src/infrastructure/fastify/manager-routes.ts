@@ -198,7 +198,7 @@ export async function registerManagerRoutes(
         title: 'Search Results',
         codebases,
         searchResults: results.results,
-        searchQuery: query,
+        searchQuery: results.query ?? query,
         selectedCodebaseName: codebaseName || '',
         maxResults: Number(maxResults),
         excludeTests: excludeTests === 'true',

@@ -95,7 +95,15 @@ export interface CodebaseMetadata {
   fileCount: number;
   languages: string[];
   createdAt?: string; // ISO 8601 timestamp - when first ingested
+  lastIngested?: string; // ISO 8601 timestamp - most recent ingest/rescan time
   lastModified?: string; // ISO 8601 timestamp - max file mtime across indexed files
+  lastScanAge?: number; // Seconds since last ingest/rescan
+  lastRescanChangedAt?: string; // ISO 8601 timestamp - most recent meaningful rescan diff
+  lastRescanFilesChanged?: number;
+  lastRescanFilesAdded?: number;
+  lastRescanFilesModified?: number;
+  lastRescanFilesDeleted?: number;
+  lastRescanChangedFilePaths?: string[];
   tableName?: string; // LanceDB table name
   status?: 'active' | 'corrupted' | 'empty';
   lastError?: string; // Last error message if any
@@ -145,6 +153,7 @@ export interface SearchParams {
  * Search results
  */
 export interface SearchResults {
+  query: string;
   results: SearchResult[];
   totalResults: number;
   queryTime: number;
@@ -175,7 +184,15 @@ export interface CodebaseStats {
   path: string;
   chunkCount: number;
   fileCount: number;
+  lastIngested?: string;
   lastModified: string; // ISO 8601 timestamp - max file mtime across indexed files
+  lastScanAge?: number; // Seconds since last ingest/rescan
+  lastRescanChangedAt?: string;
+  lastRescanFilesChanged?: number;
+  lastRescanFilesAdded?: number;
+  lastRescanFilesModified?: number;
+  lastRescanFilesDeleted?: number;
+  lastRescanChangedFilePaths?: string[];
   languages: LanguageStats[];
   chunkTypes: ChunkTypeStats[];
   sizeBytes: number;
@@ -215,10 +232,16 @@ export interface RescanResult {
   filesModified: number;
   filesDeleted: number;
   filesUnchanged: number;
+  filesIndexed: number;
+  filesDropped: number;
   chunksAdded: number;
   chunksDeleted: number;
   durationMs: number;
+  lastChangedFiles?: number;
+  lastChangedAt?: string;
+  lastChangedFilePaths?: string[];
   addedFilePaths?: string[];
   modifiedFilePaths?: string[];
   deletedFilePaths?: string[];
+  droppedFilePaths?: string[];
 }

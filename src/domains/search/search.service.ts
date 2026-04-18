@@ -153,6 +153,7 @@ export class SearchService {
         });
         const queryTime = timer.end();
         const emptyResults: SearchResults = {
+          query: params.query,
           results: [],
           totalResults: 0,
           queryTime,
@@ -265,6 +266,7 @@ export class SearchService {
       const queryTime = timer.end();
 
       const results: SearchResults = {
+        query: params.query,
         results: limitedResults,
         totalResults: limitedResults.length,
         queryTime,

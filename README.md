@@ -8,6 +8,7 @@
 ## 📋 Table of Contents
 
 - [Overview](#overview)
+- [Version History](#version-history)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -24,6 +25,18 @@
 ## Overview
 
 The Codebase Memory MCP Server enables LLM coding assistants to reliably discover existing code in a codebase, preventing duplicate implementations and wrong-file edits. It uses local embeddings, Tree-sitter-aware chunking, and LanceDB for vector storage — all running locally without cloud dependencies.
+
+## Version History
+
+Current release: `0.1.16`
+
+- `0.1.16` - Version bump for the refreshed rescan logging and dropped-file visibility
+- `0.1.15` - Version bump for the refreshed MCP tool interface and server banner
+- `0.1.14` - Bug fix release for stale index detection and version sync across the MCP server, package manifest, and changelog
+- `0.1.13` - Index freshness and `update_codebase_scan` improvements
+- `0.1.12` - Staleness warnings and expanded MCP tool surface
+
+For the full release notes, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Why Use This?
 
@@ -272,8 +285,15 @@ Lists all indexed codebases with metadata including scan age.
       "path": "/path/to/project",
       "chunkCount": 2022,
       "fileCount": 253,
-      "lastIngestion": "2026-03-21T06:18:24Z",
+      "lastIngested": "2026-03-21T06:18:24Z",
+      "lastModified": "2026-03-21T06:18:24Z",
       "lastScanAge": 57,
+      "lastRescanChangedAt": "2026-03-21T06:18:24Z",
+      "lastRescanFilesChanged": 4,
+      "lastRescanFilesAdded": 1,
+      "lastRescanFilesModified": 2,
+      "lastRescanFilesDeleted": 1,
+      "lastRescanChangedFilePaths": ["src/a.ts", "src/b.ts"],
       "languages": ["typescript", "javascript", "markdown"],
       "status": "active"
     }
@@ -281,7 +301,7 @@ Lists all indexed codebases with metadata including scan age.
 }
 ```
 
-`lastScanAge` is seconds since the last scan. Use it to decide whether to call `update_codebase_scan` before searching.
+`lastScanAge` is seconds since the last scan. `lastRescan*` fields summarize the most recent meaningful refresh. Use them to decide whether to call `update_codebase_scan` before searching.
 
 ##### `search_codebases`
 
@@ -494,6 +514,8 @@ Incrementally refreshes the index by scanning for changed files. Only re-indexes
 
 Set `verbose: true` to include lists of added, modified, and deleted file paths in the response.
 
+The response also includes `filesIndexed`, which reports how many unique files are present in the index after the scan, and `filesDropped`, which highlights the gap between scanned supported files and files that actually made it into the index.
+
 **Output:**
 ```json
 {
@@ -503,11 +525,13 @@ Set `verbose: true` to include lists of added, modified, and deleted file paths 
   "filesModified": 5,
   "filesDeleted": 1,
   "filesUnchanged": 245,
+  "filesIndexed": 250,
+  "filesDropped": 3,
   "chunksAdded": 18,
   "chunksDeleted": 12,
   "durationMs": 644,
   "cacheCleared": true,
-  "message": "Successfully refreshed codebase 'my-project': 2 added, 5 modified, 1 deleted, 245 unchanged"
+  "message": "Successfully refreshed codebase 'my-project': 2 added, 5 modified, 1 deleted, 245 unchanged, 250 indexed"
 }
 ```
 

@@ -173,6 +173,7 @@ export class UserManager {
 
       const mockSearchService = {
         search: vi.fn().mockResolvedValue({
+          query: 'test',
           results: [],
           totalResults: 0,
           queryTime: 10,
@@ -221,6 +222,7 @@ export class UserManager {
       } as any;
 
       const mockSearchResults: SearchResults = {
+        query: 'test',
         results: [
           {
             filePath: 'test.ts',
@@ -273,6 +275,7 @@ export class UserManager {
 
       const mockSearchService = {
         search: vi.fn().mockResolvedValue({
+          query: 'test',
           results: [],
           totalResults: 0,
           queryTime: 10,
@@ -314,6 +317,7 @@ export class UserManager {
 
       const mockSearchService = {
         search: vi.fn().mockResolvedValue({
+          query: 'test',
           results: [],
           totalResults: 0,
           queryTime: 10,
@@ -340,6 +344,7 @@ export class UserManager {
       const fastify = Fastify({ logger: false });
 
       const mockSearchResults: SearchResults = {
+        query: 'api handler',
         results: [
           {
             filePath: 'api.ts',

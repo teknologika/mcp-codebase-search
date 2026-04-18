@@ -27,6 +27,8 @@ The ingestion service counted all files it attempted to process, while `list_fil
 - Tracks files that produce at least one chunk vs files that fail or produce no chunks
 - Provides clearer visibility into ingestion success rates
 
+**Follow-up instrumentation**: `update_codebase_scan` now also reports `filesIndexed` and `filesDropped`, and the ingestion pipeline logs the file paths dropped during parse, embedding, and store stages. That makes it easier to reconcile scan totals with `list_files` output in a single run.
+
 ## Changes Made
 
 ### 1. `src/domains/parsing/tree-sitter-parsing.service.ts`

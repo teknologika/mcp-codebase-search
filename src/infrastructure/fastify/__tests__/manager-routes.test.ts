@@ -35,6 +35,7 @@ describe('Fastify Manager Routes', () => {
 
     mockSearchService = {
       search: vi.fn().mockResolvedValue({
+        query: 'test',
         results: [],
         totalResults: 0,
         queryTime: 1,

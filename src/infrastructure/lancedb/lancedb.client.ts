@@ -27,6 +27,27 @@ export interface CollectionInfo {
   metadata?: Record<string, any>;
 }
 
+function parseStringArrayField(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+
+  if (typeof value !== 'string' || value.length === 0) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === 'string' && item.length > 0);
+    }
+  } catch {
+    return [value];
+  }
+
+  return [value];
+}
+
 /**
  * LanceDB client wrapper with enhanced functionality
  */
@@ -385,6 +406,12 @@ export class LanceDBClientWrapper {
           createdAt: new Date().toISOString(),
           lastIngested: new Date().toISOString(),
           lastModified: new Date().toISOString(),
+          lastRescanChangedAt: '',
+          lastRescanFilesChanged: 0,
+          lastRescanFilesAdded: 0,
+          lastRescanFilesModified: 0,
+          lastRescanFilesDeleted: 0,
+          lastRescanChangedFilePaths: JSON.stringify([]),
           chunkCount: 0,
           fileCount: 0,
           sizeBytes: 0,
@@ -445,6 +472,7 @@ export class LanceDBClientWrapper {
         ...row,
         languages: JSON.parse(row.languages || '[]'),
         chunkTypes: JSON.parse(row.chunkTypes || '[]'),
+        lastRescanChangedFilePaths: parseStringArrayField(row.lastRescanChangedFilePaths),
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -486,6 +514,12 @@ export class LanceDBClientWrapper {
         tableName: metadata.tableName || LanceDBClientWrapper.getTableName(metadata.name),
         status: metadata.status || 'active',
         lastError: metadata.lastError || null,
+        lastRescanChangedAt: metadata.lastRescanChangedAt || '',
+        lastRescanFilesChanged: metadata.lastRescanFilesChanged || 0,
+        lastRescanFilesAdded: metadata.lastRescanFilesAdded || 0,
+        lastRescanFilesModified: metadata.lastRescanFilesModified || 0,
+        lastRescanFilesDeleted: metadata.lastRescanFilesDeleted || 0,
+        lastRescanChangedFilePaths: JSON.stringify(metadata.lastRescanChangedFilePaths || []),
       };
 
       if (existing) {
@@ -553,6 +587,7 @@ export class LanceDBClientWrapper {
         ...row,
         languages: JSON.parse(row.languages || '[]'),
         chunkTypes: JSON.parse(row.chunkTypes || '[]'),
+        lastRescanChangedFilePaths: parseStringArrayField(row.lastRescanChangedFilePaths),
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

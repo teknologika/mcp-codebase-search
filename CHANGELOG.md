@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-04-08
+
+### Changed
+- Bumped the package version to `0.1.16` and surfaced dropped-file paths during `update_codebase_scan` rescans.
+
+## [0.1.15] - 2026-04-05
+
+### Changed
+- Bumped the package version to `0.1.15` and synced the MCP server banner for the refreshed 9-tool interface.
+
+## [0.1.14] - 2026-04-05
+
+### Changed
+- Bumped the package version to `0.1.14`.
+
 ## [0.1.13] - 2026-04-04
 
 ### Changed
@@ -81,7 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test and library file detection and filtering
 - Gitignore support during ingestion
 
-[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.15...v0.1.16
+[0.1.15]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.14...v0.1.15
+[0.1.14]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.13...v0.1.14
 [0.1.12]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.8...v0.1.11
 [0.1.8]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.7...v0.1.8

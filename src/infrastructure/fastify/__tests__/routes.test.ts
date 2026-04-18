@@ -85,6 +85,7 @@ describe('Fastify API Routes', () => {
   describe('POST /api/search', () => {
     it('should return search results with valid query', async () => {
       const mockResults: SearchResults = {
+        query: 'test function',
         results: [
           {
             filePath: '/path/to/file.ts',
@@ -121,6 +122,7 @@ describe('Fastify API Routes', () => {
 
     it('should accept optional filters', async () => {
       const mockResults: SearchResults = {
+        query: 'test',
         results: [],
         totalResults: 0,
         queryTime: 10,

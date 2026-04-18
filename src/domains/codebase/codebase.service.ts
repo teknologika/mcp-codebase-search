@@ -52,6 +52,23 @@ function isNewerTimestamp(candidate?: string, currentMax?: string): boolean {
   return candidateMs > currentMaxMs;
 }
 
+function getRowTimestamp(row: any): string {
+  return row?.fileMtime || row?.ingestionTimestamp || row?._lastIngestion || row?._createdAt || '';
+}
+
+function getScanAgeSeconds(timestamp?: string): number | undefined {
+  if (!timestamp) {
+    return undefined;
+  }
+
+  const timestampMs = Date.parse(timestamp);
+  if (Number.isNaN(timestampMs)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.floor((Date.now() - timestampMs) / 1000));
+}
+
 /**
  * Error thrown when codebase operations fail
  */
@@ -94,6 +111,7 @@ export class CodebaseService {
 
           for (const meta of metadataList) {
             codebaseNames.add(meta.name);
+            const lastIngested = meta.lastIngested || meta.lastModified || '';
             codebases.push({
               name: meta.name,
               path: meta.path,
@@ -101,7 +119,15 @@ export class CodebaseService {
               fileCount: meta.fileCount,
               languages: meta.languages.map((l: any) => l.language || l),
               createdAt: meta.createdAt,
+              lastIngested,
               lastModified: meta.lastModified || '',
+              lastScanAge: getScanAgeSeconds(lastIngested),
+              lastRescanChangedAt: meta.lastRescanChangedAt || '',
+              lastRescanFilesChanged: meta.lastRescanFilesChanged || 0,
+              lastRescanFilesAdded: meta.lastRescanFilesAdded || 0,
+              lastRescanFilesModified: meta.lastRescanFilesModified || 0,
+              lastRescanFilesDeleted: meta.lastRescanFilesDeleted || 0,
+              lastRescanChangedFilePaths: meta.lastRescanChangedFilePaths || [],
               tableName: meta.tableName,
               status: meta.status,
               lastError: meta.lastError,
@@ -133,6 +159,7 @@ export class CodebaseService {
 
           let path = '';
           let fileCount = 0;
+          let lastIngested = '';
           let lastModified = '';
           let languages: string[] = [];
 
@@ -141,6 +168,7 @@ export class CodebaseService {
             if (sample.length > 0) {
               const firstRow = sample[0];
               path = firstRow._path || '';
+              lastIngested = firstRow._lastIngestion || firstRow.ingestionTimestamp || firstRow.fileMtime || '';
               lastModified = firstRow.fileMtime || firstRow.ingestionTimestamp || firstRow._lastIngestion || firstRow._createdAt || '';
 
               const allRows = await lanceTable
@@ -175,7 +203,9 @@ export class CodebaseService {
             chunkCount: count,
             fileCount,
             languages,
+            lastIngested,
             lastModified,
+            lastScanAge: getScanAgeSeconds(lastIngested || lastModified),
             status: count === 0 ? 'empty' : 'active',
           });
         } catch (err: unknown) {
@@ -185,6 +215,7 @@ export class CodebaseService {
             chunkCount: 0,
             fileCount: 0,
             languages: [],
+            lastIngested: '',
             lastModified: '',
             status: 'corrupted',
             lastError: getErrorMessage(err),
@@ -235,12 +266,15 @@ export class CodebaseService {
       const fileSet = new Set<string>();
       let totalSize = 0;
       let path = '';
+      let lastIngested = '';
       let lastModified = '';
+      let metadata: any = null;
 
       try {
-        const metadata = await this.lanceClient.getMetadata(name);
+        metadata = await this.lanceClient.getMetadata(name);
         if (metadata) {
           path = metadata.path || path;
+          lastIngested = metadata.lastIngested || metadata.lastModified || '';
           lastModified = metadata.lastModified || '';
         }
       } catch (error) {
@@ -259,6 +293,9 @@ export class CodebaseService {
         // Fallback metadata from rows for older indexes
         if (!path && row._path) path = row._path;
         const candidateLastModified = row.fileMtime || row.ingestionTimestamp || row._lastIngestion || row._createdAt || '';
+        if (!lastIngested && candidateLastModified) {
+          lastIngested = candidateLastModified;
+        }
         if (isNewerTimestamp(candidateLastModified, lastModified)) {
           lastModified = candidateLastModified;
         }
@@ -299,7 +336,15 @@ export class CodebaseService {
         path,
         chunkCount,
         fileCount: fileSet.size,
+        lastIngested,
         lastModified,
+        lastScanAge: getScanAgeSeconds(lastIngested || lastModified),
+        lastRescanChangedAt: metadata?.lastRescanChangedAt || '',
+        lastRescanFilesChanged: metadata?.lastRescanFilesChanged || 0,
+        lastRescanFilesAdded: metadata?.lastRescanFilesAdded || 0,
+        lastRescanFilesModified: metadata?.lastRescanFilesModified || 0,
+        lastRescanFilesDeleted: metadata?.lastRescanFilesDeleted || 0,
+        lastRescanChangedFilePaths: metadata?.lastRescanChangedFilePaths || [],
         languages,
         chunkTypes,
         sizeBytes: totalSize,
@@ -567,9 +612,12 @@ export class CodebaseService {
         file.sizeBytes += (row.content || '').length;
 
         // Keep latest file mtime defensively. Fallback for pre-migration rows uses ingestionTimestamp.
-        const candidateFileMtime = row.fileMtime || row.ingestionTimestamp || '';
+        const candidateFileMtime = getRowTimestamp(row);
         if (isNewerTimestamp(candidateFileMtime, file.fileMtime)) {
           file.fileMtime = candidateFileMtime;
+          file.language = (row.language || file.language) as Language;
+          file.isTestFile = row.isTestFile || false;
+          file.isLibraryFile = row.isLibraryFile || false;
           file.fileHash = row.fileHash || '';
         }
       }
@@ -1000,16 +1048,25 @@ export class CodebaseService {
           );
         }
 
-        // Get full file content from the first chunk (where it's stored)
-        const firstChunk = rows.find(row => row.fullFileContent);
-        
-        if (!firstChunk || !firstChunk.fullFileContent) {
+        const contentRows = rows.filter(row => row.fullFileContent);
+
+        if (contentRows.length === 0) {
           throw new CodebaseError(
             `File content not available in database for ${normalizedFilePath}. Re-ingest the codebase with storeFullFiles enabled.`
           );
         }
-        
-        const content = firstChunk.fullFileContent;
+
+        const latestChunk = contentRows.reduce((latest, candidate) => {
+          if (!latest) {
+            return candidate;
+          }
+
+          const latestTimestamp = getRowTimestamp(latest);
+          const candidateTimestamp = getRowTimestamp(candidate);
+          return isNewerTimestamp(candidateTimestamp, latestTimestamp) ? candidate : latest;
+        }, contentRows[0]);
+
+        const content = latestChunk.fullFileContent;
         logger.debug('Retrieved full file content from database', {
           codebaseName,
           filePath: normalizedFilePath,
@@ -1017,7 +1074,7 @@ export class CodebaseService {
         });
 
         // Get metadata from chunks
-        const language = rows[0].language || 'unknown';
+        const language = latestChunk.language || rows[0].language || 'unknown';
         const lines = content.split('\n');
         const totalLines = lines.length;
 

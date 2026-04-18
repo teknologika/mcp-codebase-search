@@ -44,6 +44,65 @@ export class IngestionError extends Error {
  */
 export type ProgressCallback = (phase: string, current: number, total: number) => void;
 
+interface RescanChangeSnapshot {
+  changedAt: string;
+  filesAdded: number;
+  filesModified: number;
+  filesDeleted: number;
+  filesChanged: number;
+  changedFilePaths: string[];
+}
+
+function normalizeStoredChangeSnapshot(metadata: any): RescanChangeSnapshot | null {
+  if (!metadata) {
+    return null;
+  }
+
+  const filesAdded = Number(metadata.lastRescanFilesAdded || 0);
+  const filesModified = Number(metadata.lastRescanFilesModified || 0);
+  const filesDeleted = Number(metadata.lastRescanFilesDeleted || 0);
+  const filesChanged = Number(metadata.lastRescanFilesChanged || filesAdded + filesModified + filesDeleted || 0);
+  const changedAt = metadata.lastRescanChangedAt || '';
+  const changedFilePaths = Array.isArray(metadata.lastRescanChangedFilePaths)
+    ? metadata.lastRescanChangedFilePaths.filter((filePath: unknown): filePath is string => typeof filePath === 'string' && filePath.length > 0)
+    : [];
+
+  if (!changedAt && filesChanged <= 0 && filesAdded <= 0 && filesModified <= 0 && filesDeleted <= 0) {
+    return null;
+  }
+
+  return {
+    changedAt,
+    filesAdded,
+    filesModified,
+    filesDeleted,
+    filesChanged,
+    changedFilePaths,
+  };
+}
+
+function ensureUtf8BatchColumnHasValue<T extends Record<string, unknown>>(
+  rows: T[],
+  field: keyof T
+): T[] {
+  if (rows.length === 0) {
+    return rows;
+  }
+
+  if (rows.some(row => typeof row[field] === 'string')) {
+    return rows;
+  }
+
+  // Lance/Arrow can reject an appended Utf8 column when an entire batch is null.
+  // Seeding one empty string keeps the offsets buffer valid without changing reads,
+  // because callers already treat empty fullFileContent as "not available".
+  return rows.map((row, index) => (
+    index === 0
+      ? { ...row, [field]: '' }
+      : row
+  ));
+}
+
 /**
  * Ingestion orchestration service
  */
@@ -70,6 +129,51 @@ export class IngestionService {
     this.lanceClient = lanceClient;
     this.config = config;
     this.logger = rootLogger.child('IngestionService');
+  }
+
+  /**
+   * Log a file that was dropped from the indexing pipeline.
+   */
+  private logDroppedFile(
+    stage: 'parse' | 'embedding' | 'store',
+    filePath: string,
+    reason: string,
+    details: Record<string, unknown> = {},
+    droppedFilePaths?: Set<string>
+  ): void {
+    if (droppedFilePaths) {
+      droppedFilePaths.add(filePath);
+    }
+
+    this.logger.warn('Dropping file from indexing pipeline', {
+      stage,
+      filePath,
+      reason,
+      ...details,
+    });
+  }
+
+  /**
+   * Log a batch of files that was dropped from the indexing pipeline.
+   */
+  private logDroppedFileBatch(
+    filePaths: string[],
+    reason: string,
+    details: Record<string, unknown> = {},
+    droppedFilePaths?: Set<string>
+  ): void {
+    if (droppedFilePaths) {
+      for (const filePath of filePaths) {
+        droppedFilePaths.add(filePath);
+      }
+    }
+
+    this.logger.warn('Dropping files from indexing pipeline', {
+      stage: 'store',
+      filePaths,
+      reason,
+      ...details,
+    });
   }
 
   /**
@@ -200,10 +304,12 @@ export class IngestionService {
             filesSuccessfullyParsed++;
           } else {
             filesFailedToParse++;
-            this.logger.warn('File parsed but produced no chunks and no full content available', {
-              filePath: file.relativePath,
-              language: file.language,
-            });
+            this.logDroppedFile(
+              'parse',
+              file.relativePath,
+              'file parsed successfully but produced no chunks and no full content was available',
+              { language: file.language }
+            );
           }
           
           // Classify file and add metadata to chunks
@@ -235,18 +341,14 @@ export class IngestionService {
             chunkCount: chunks.length,
             fileHash,
           });
-        } catch (error) {
-          // Log error but continue with other files
-          filesFailedToParse++;
-          this.logger.error(
-            'Failed to parse file, skipping',
-            error instanceof Error ? error : new Error(String(error)),
-            {
-              filePath: file.relativePath,
+          } catch (error) {
+            // Log error but continue with other files
+            filesFailedToParse++;
+            this.logDroppedFile('parse', file.relativePath, 'failed to parse file', {
               language: file.language,
-            }
-          );
-        }
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
       }
 
       parseTimer.end();
@@ -416,7 +518,8 @@ export class IngestionService {
    */
   private async generateEmbeddingsBatch(
     chunks: Chunk[],
-    progressCallback?: ProgressCallback
+    progressCallback?: ProgressCallback,
+    droppedFilePaths?: Set<string>
   ): Promise<Array<Chunk & { embedding: number[] }>> {
     const batchSize = this.config.ingestion.batchSize;
     const chunksWithEmbeddings: Array<Chunk & { embedding: number[] }> = [];
@@ -436,12 +539,18 @@ export class IngestionService {
               ...batch[j],
               embedding: embeddings[j],
             });
-          } else {
-            this.logger.warn('Embedding generation failed for chunk, skipping', {
-              filePath: batch[j].filePath,
-              startLine: batch[j].startLine,
-            });
-          }
+            } else {
+              this.logDroppedFile(
+                'embedding',
+                batch[j].filePath,
+                'embedding generation failed for chunk',
+                {
+                  startLine: batch[j].startLine,
+                  endLine: batch[j].endLine,
+                },
+                droppedFilePaths
+              );
+            }
         }
 
         processedCount += batch.length;
@@ -478,7 +587,8 @@ export class IngestionService {
     ingestionTimestamp: string,
     _languageStats: Map<string, { fileCount: number; chunkCount: number }>,
     _fileCount: number,
-    progressCallback?: ProgressCallback
+    progressCallback?: ProgressCallback,
+    droppedFilePaths?: Set<string>
   ): Promise<void> {
     if (chunks.length === 0) {
       this.logger.warn('No chunks to store', { codebaseName });
@@ -494,7 +604,7 @@ export class IngestionService {
       const batch = chunks.slice(i, i + batchSize);
 
       // Transform chunks to LanceDB row format
-      const rows = batch.map((chunk, idx) => ({
+      const rows = ensureUtf8BatchColumnHasValue(batch.map((chunk, idx) => ({
         id: `${codebaseName}_${ingestionTimestamp}_${i + idx}`,
         vector: chunk.embedding,
         content: chunk.content || '',
@@ -512,7 +622,7 @@ export class IngestionService {
         _codebaseName: codebaseName,
         _path: codebasePath,
         _lastIngestion: ingestionTimestamp,
-      }));
+      })), 'fullFileContent');
 
       // Debug: Log first row structure
       if (i === 0 && rows.length > 0) {
@@ -553,13 +663,15 @@ export class IngestionService {
           batchSize: batch.length,
         });
       } catch (error) {
-        this.logger.error(
-          'Failed to store batch',
-          error instanceof Error ? error : new Error(String(error)),
+        this.logDroppedFileBatch(
+          batch.map(chunk => chunk.filePath).filter((filePath): filePath is string => Boolean(filePath)),
+          'failed to store batch',
           {
             batchIndex: Math.floor(i / batchSize) + 1,
             batchSize: batch.length,
-          }
+            error: error instanceof Error ? error.message : String(error),
+          },
+          droppedFilePaths
         );
         throw error;
       }
@@ -680,20 +792,35 @@ export class IngestionService {
         throw new IngestionError(`Codebase '${codebaseName}' not found`);
       }
 
+      const existingMetadata = await this.lanceClient.getMetadata(codebaseName);
       const rows = await table.query().toArray();
-      const storedFileMap = new Map<string, { hash: string; chunkCount: number }>();
+      const storedFileMap = new Map<string, {
+        hash: string;
+        chunkCount: number;
+        latestTimestamp: string;
+      }>();
 
       for (const row of rows) {
         const filePath = row.filePath || '';
         if (!filePath) continue;
 
-        if (!storedFileMap.has(filePath)) {
+        const candidateTimestamp = row.fileMtime || row.ingestionTimestamp || row._lastIngestion || row._createdAt || '';
+        const existing = storedFileMap.get(filePath);
+
+        if (!existing) {
           storedFileMap.set(filePath, {
             hash: row.fileHash || '',
-            chunkCount: 0,
+            chunkCount: 1,
+            latestTimestamp: candidateTimestamp,
           });
+          continue;
         }
-        storedFileMap.get(filePath)!.chunkCount++;
+
+        existing.chunkCount++;
+        if (this.isNewerTimestamp(candidateTimestamp, existing.latestTimestamp)) {
+          existing.latestTimestamp = candidateTimestamp;
+          existing.hash = row.fileHash || existing.hash;
+        }
       }
 
       this.logger.info('Stored file hashes retrieved', {
@@ -723,6 +850,7 @@ export class IngestionService {
       const addedFiles: typeof supportedFiles = [];
       const modifiedFiles: typeof supportedFiles = [];
       const unchangedFiles: typeof supportedFiles = [];
+      const droppedFilePaths = new Set<string>();
 
       for (let i = 0; i < supportedFiles.length; i++) {
         const file = supportedFiles[i];
@@ -855,6 +983,14 @@ export class IngestionService {
                 language: file.language as any,
                 filePath: file.relativePath, // Use relative path
               }];
+            } else if (chunks.length === 0) {
+              this.logDroppedFile(
+                'parse',
+                file.relativePath,
+                'file parsed successfully but produced no chunks and no full content was available',
+                { language: file.language },
+                droppedFilePaths
+              );
             }
             
             // Convert absolute paths to relative paths in all chunks
@@ -876,11 +1012,9 @@ export class IngestionService {
 
             allChunks.push(...chunksWithMetadata);
           } catch (error) {
-            this.logger.error(
-              'Failed to parse file, skipping',
-              error instanceof Error ? error : new Error(String(error)),
-              { filePath: file.relativePath }
-            );
+            this.logDroppedFile('parse', file.relativePath, 'failed to parse file', {
+              error: error instanceof Error ? error.message : String(error),
+            }, droppedFilePaths);
           }
         }
 
@@ -892,7 +1026,8 @@ export class IngestionService {
 
           const chunksWithEmbeddings = await this.generateEmbeddingsBatch(
             allChunks,
-            progressCallback
+            progressCallback,
+            droppedFilePaths
           );
 
           // Store chunks
@@ -904,7 +1039,8 @@ export class IngestionService {
             ingestionTimestamp,
             new Map(),
             filesToProcess.length,
-            progressCallback
+            progressCallback,
+            droppedFilePaths
           );
 
           chunksAdded = allChunks.length;
@@ -914,6 +1050,23 @@ export class IngestionService {
       // Update lastIngestion timestamp for all chunks to reflect the rescan time
       const rescanTimestamp = new Date().toISOString();
       await this.updateLastIngestionTimestamp(codebaseName, rescanTimestamp);
+
+      const currentChangeSnapshot: RescanChangeSnapshot = {
+        changedAt: rescanTimestamp,
+        filesAdded: addedFiles.length,
+        filesModified: modifiedFiles.length,
+        filesDeleted: deletedFiles.length,
+        filesChanged: addedFiles.length + modifiedFiles.length + deletedFiles.length,
+        changedFilePaths: [
+          ...addedFiles.map(file => file.relativePath),
+          ...modifiedFiles.map(file => file.relativePath),
+          ...deletedFiles,
+        ],
+      };
+      const storedChangeSnapshot = normalizeStoredChangeSnapshot(existingMetadata);
+      const lastMeaningfulChange = currentChangeSnapshot.filesChanged > 0
+        ? currentChangeSnapshot
+        : storedChangeSnapshot;
 
       // Update metadata after rescan
       this.logger.info('Updating metadata after rescan');
@@ -965,44 +1118,82 @@ export class IngestionService {
           rescanTimestamp,
           maxFileMtime || undefined,
           rescanSizeBytes,
-          rescanChunkTypeMap
+          rescanChunkTypeMap,
+          lastMeaningfulChange
         );
+
+        const filesIndexed = fileSet.size;
+        const filesDropped = Math.max(supportedFiles.length - filesIndexed, 0);
+        const droppedFiles = Array.from(droppedFilePaths).sort();
+        const lastChangedFiles = lastMeaningfulChange?.filesChanged || 0;
+        const lastChangedAt = lastMeaningfulChange?.changedAt || undefined;
+        const lastChangedFilePaths = lastMeaningfulChange?.changedFilePaths || [];
+
+        const durationMs = overallTimer.end();
+
+        const result: RescanResult = {
+          codebaseName,
+          filesScanned: supportedFiles.length,
+          filesAdded: addedFiles.length,
+          filesModified: modifiedFiles.length,
+          filesDeleted: deletedFiles.length,
+          filesUnchanged: unchangedFiles.length,
+          filesIndexed,
+          filesDropped,
+          chunksAdded,
+          chunksDeleted,
+          durationMs,
+          lastChangedFiles,
+          lastChangedAt,
+          lastChangedFilePaths,
+          addedFilePaths: addedFiles.map(file => file.relativePath),
+          modifiedFilePaths: modifiedFiles.map(file => file.relativePath),
+          deletedFilePaths: [...deletedFiles],
+          droppedFilePaths: droppedFiles,
+        };
+
+        this.logger.info('Rescan completed successfully', {
+          codebaseName,
+          filesScanned: result.filesScanned,
+          filesIndexed: result.filesIndexed,
+          filesDropped: result.filesDropped,
+          droppedFileCount: droppedFiles.length,
+          filesAdded: result.filesAdded,
+          filesModified: result.filesModified,
+          filesDeleted: result.filesDeleted,
+          filesUnchanged: result.filesUnchanged,
+          chunksAdded: result.chunksAdded,
+          chunksDeleted: result.chunksDeleted,
+          durationMs: result.durationMs,
+          droppedFilePaths: result.droppedFilePaths,
+        });
+
+        return result;
       }
 
       // Clear maps to free memory before completing
       storedFileMap.clear();
       currentFileMap.clear();
-
-      const durationMs = overallTimer.end();
-
-      const result: RescanResult = {
+      return {
         codebaseName,
         filesScanned: supportedFiles.length,
         filesAdded: addedFiles.length,
         filesModified: modifiedFiles.length,
         filesDeleted: deletedFiles.length,
         filesUnchanged: unchangedFiles.length,
+        filesIndexed: 0,
+        filesDropped: supportedFiles.length,
         chunksAdded,
         chunksDeleted,
-        durationMs,
+        durationMs: overallTimer.end(),
+        lastChangedFiles: lastMeaningfulChange?.filesChanged || 0,
+        lastChangedAt: lastMeaningfulChange?.changedAt || undefined,
+        lastChangedFilePaths: lastMeaningfulChange?.changedFilePaths || [],
         addedFilePaths: addedFiles.map(file => file.relativePath),
         modifiedFilePaths: modifiedFiles.map(file => file.relativePath),
         deletedFilePaths: [...deletedFiles],
+        droppedFilePaths: Array.from(droppedFilePaths).sort(),
       };
-
-      this.logger.info('Rescan completed successfully', {
-        codebaseName,
-        filesScanned: result.filesScanned,
-        filesAdded: result.filesAdded,
-        filesModified: result.filesModified,
-        filesDeleted: result.filesDeleted,
-        filesUnchanged: result.filesUnchanged,
-        chunksAdded: result.chunksAdded,
-        chunksDeleted: result.chunksDeleted,
-        durationMs: result.durationMs,
-      });
-
-      return result;
     } catch (error) {
       overallTimer.end();
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1044,7 +1235,8 @@ export class IngestionService {
     ingestionTimestamp: string,
     lastModified?: string,
     sizeBytes?: number,
-    chunkTypes?: Map<string, number>
+    chunkTypes?: Map<string, number>,
+    lastMeaningfulChange?: RescanChangeSnapshot | null
   ): Promise<void> {
     try {
       // Get existing metadata to preserve createdAt
@@ -1076,6 +1268,12 @@ export class IngestionService {
         schemaVersion: LanceDBClientWrapper.getSchemaVersion(),
         tableName: LanceDBClientWrapper.getTableName(codebaseName),
         status: 'active' as const,
+        lastRescanChangedAt: lastMeaningfulChange?.changedAt || existingMetadata?.lastRescanChangedAt,
+        lastRescanFilesChanged: lastMeaningfulChange?.filesChanged ?? existingMetadata?.lastRescanFilesChanged ?? 0,
+        lastRescanFilesAdded: lastMeaningfulChange?.filesAdded ?? existingMetadata?.lastRescanFilesAdded ?? 0,
+        lastRescanFilesModified: lastMeaningfulChange?.filesModified ?? existingMetadata?.lastRescanFilesModified ?? 0,
+        lastRescanFilesDeleted: lastMeaningfulChange?.filesDeleted ?? existingMetadata?.lastRescanFilesDeleted ?? 0,
+        lastRescanChangedFilePaths: lastMeaningfulChange?.changedFilePaths ?? existingMetadata?.lastRescanChangedFilePaths ?? [],
       };
 
       await this.lanceClient.setMetadata(metadata);

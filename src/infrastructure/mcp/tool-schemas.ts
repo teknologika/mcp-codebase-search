@@ -48,9 +48,52 @@ export const LIST_CODEBASES_SCHEMA = {
               description: 'Total number of files processed',
               minimum: 0,
             },
+            lastIngested: {
+              type: 'string',
+              description: 'ISO 8601 timestamp of the most recent ingest or rescan',
+              format: 'date-time',
+            },
             lastModified: {
               type: 'string',
               description: 'ISO 8601 timestamp of the most recently modified indexed file',
+              format: 'date-time',
+            },
+            lastScanAge: {
+              type: 'number',
+              description: 'Seconds since the last ingest or rescan completed',
+              minimum: 0,
+            },
+            lastRescanChangedAt: {
+              type: 'string',
+              description: 'ISO 8601 timestamp of the most recent meaningful rescan',
+              format: 'date-time',
+            },
+            lastRescanFilesChanged: {
+              type: 'number',
+              description: 'Total number of files changed in the most recent meaningful rescan',
+              minimum: 0,
+            },
+            lastRescanFilesAdded: {
+              type: 'number',
+              description: 'Number of files added in the most recent meaningful rescan',
+              minimum: 0,
+            },
+            lastRescanFilesModified: {
+              type: 'number',
+              description: 'Number of files modified in the most recent meaningful rescan',
+              minimum: 0,
+            },
+            lastRescanFilesDeleted: {
+              type: 'number',
+              description: 'Number of files deleted in the most recent meaningful rescan',
+              minimum: 0,
+            },
+            lastRescanChangedFilePaths: {
+              type: 'array',
+              description: 'Relative file paths changed by the most recent meaningful rescan',
+              items: {
+                type: 'string',
+              },
             },
             languages: {
               type: 'array',
@@ -123,6 +166,10 @@ export const SEARCH_CODEBASES_SCHEMA = {
   outputSchema: {
     type: 'object',
     properties: {
+      query: {
+        type: 'string',
+        description: 'The search query that produced these results',
+      },
       results: {
         type: 'array',
         description: 'Array of search results ranked by similarity score',
@@ -220,7 +267,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
         },
       },
     },
-    required: ['results', 'totalResults', 'queryTime', 'staleFiles'],
+    required: ['query', 'results', 'totalResults', 'queryTime', 'staleFiles'],
     additionalProperties: false,
   },
 } as const;
@@ -271,6 +318,48 @@ export const GET_CODEBASE_STATS_SCHEMA = {
         type: 'string',
         description: 'ISO 8601 timestamp of the most recently modified indexed file',
         format: 'date-time',
+      },
+      lastIngested: {
+        type: 'string',
+        description: 'ISO 8601 timestamp of the most recent ingest or rescan',
+        format: 'date-time',
+      },
+      lastScanAge: {
+        type: 'number',
+        description: 'Seconds since the last ingest or rescan completed',
+        minimum: 0,
+      },
+      lastRescanChangedAt: {
+        type: 'string',
+        description: 'ISO 8601 timestamp of the most recent meaningful rescan',
+        format: 'date-time',
+      },
+      lastRescanFilesChanged: {
+        type: 'number',
+        description: 'Total number of files changed in the most recent meaningful rescan',
+        minimum: 0,
+      },
+      lastRescanFilesAdded: {
+        type: 'number',
+        description: 'Number of files added in the most recent meaningful rescan',
+        minimum: 0,
+      },
+      lastRescanFilesModified: {
+        type: 'number',
+        description: 'Number of files modified in the most recent meaningful rescan',
+        minimum: 0,
+      },
+      lastRescanFilesDeleted: {
+        type: 'number',
+        description: 'Number of files deleted in the most recent meaningful rescan',
+        minimum: 0,
+      },
+      lastRescanChangedFilePaths: {
+        type: 'array',
+        description: 'Relative file paths changed by the most recent meaningful rescan',
+        items: {
+          type: 'string',
+        },
       },
       languages: {
         type: 'array',
@@ -468,6 +557,22 @@ export const UPDATE_CODEBASE_SCAN_SCHEMA = {
   outputSchema: {
     type: 'object',
     properties: {
+      request: {
+        type: 'object',
+        description: 'The input request that triggered the update',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the codebase to refresh',
+          },
+          verbose: {
+            type: 'boolean',
+            description: 'Whether verbose file path details were requested',
+          },
+        },
+        required: ['name', 'verbose'],
+        additionalProperties: false,
+      },
       name: {
         type: 'string',
         description: 'Name of the codebase that was refreshed',
@@ -499,6 +604,16 @@ export const UPDATE_CODEBASE_SCAN_SCHEMA = {
       filesUnchanged: {
         type: 'number',
         description: 'Number of files that did not change during rescan',
+        minimum: 0,
+      },
+      filesIndexed: {
+        type: 'number',
+        description: 'Number of unique files present in the index after the rescan',
+        minimum: 0,
+      },
+      filesDropped: {
+        type: 'number',
+        description: 'Number of supported files that were scanned but did not end up indexed',
         minimum: 0,
       },
       chunksAdded: {
@@ -536,17 +651,41 @@ export const UPDATE_CODEBASE_SCAN_SCHEMA = {
           type: 'string',
         },
       },
+      droppedFilePaths: {
+        type: 'array',
+        description: 'File paths that were scanned but did not end up indexed (verbose mode only)',
+        items: {
+          type: 'string',
+        },
+      },
       durationMs: {
         type: 'number',
         description: 'Time taken to complete the refresh in milliseconds',
         minimum: 0,
+      },
+      lastChangedFiles: {
+        type: 'number',
+        description: 'Number of files changed in the most recent meaningful rescan',
+        minimum: 0,
+      },
+      lastChangedAt: {
+        type: 'string',
+        description: 'Timestamp of the most recent meaningful rescan',
+        format: 'date-time',
+      },
+      lastChangedFilePaths: {
+        type: 'array',
+        description: 'File paths from the most recent meaningful rescan',
+        items: {
+          type: 'string',
+        },
       },
       message: {
         type: 'string',
         description: 'Status message about the operation',
       },
     },
-    required: ['name', 'path', 'filesScanned', 'filesAdded', 'filesModified', 'filesDeleted', 'filesUnchanged', 'chunksAdded', 'chunksDeleted', 'cacheCleared', 'durationMs', 'message'],
+    required: ['request', 'name', 'path', 'filesScanned', 'filesAdded', 'filesModified', 'filesDeleted', 'filesUnchanged', 'filesIndexed', 'filesDropped', 'chunksAdded', 'chunksDeleted', 'cacheCleared', 'durationMs', 'message', 'lastChangedFilePaths'],
     additionalProperties: false,
   },
 } as const;
@@ -866,7 +1005,15 @@ export interface ListCodebasesOutput {
     path: string;
     chunkCount: number;
     fileCount: number;
+    lastIngested?: string;
     lastModified: string;
+    lastScanAge?: number;
+    lastRescanChangedAt?: string;
+    lastRescanFilesChanged?: number;
+    lastRescanFilesAdded?: number;
+    lastRescanFilesModified?: number;
+    lastRescanFilesDeleted?: number;
+    lastRescanChangedFilePaths?: string[];
     languages: string[];
   }>;
 }
@@ -881,6 +1028,7 @@ export interface SearchCodebasesInput {
 }
 
 export interface SearchCodebasesOutput {
+  query: string;
   results: Array<{
     filePath: string;
     startLine: number;
@@ -910,7 +1058,15 @@ export interface GetCodebaseStatsOutput {
   path: string;
   chunkCount: number;
   fileCount: number;
+  lastIngested?: string;
   lastModified: string;
+  lastScanAge?: number;
+  lastRescanChangedAt?: string;
+  lastRescanFilesChanged?: number;
+  lastRescanFilesAdded?: number;
+  lastRescanFilesModified?: number;
+  lastRescanFilesDeleted?: number;
+  lastRescanChangedFilePaths?: string[];
   languages: Array<{
     language: string;
     fileCount: number;
@@ -957,6 +1113,10 @@ export interface UpdateCodebaseScanInput {
 }
 
 export interface UpdateCodebaseScanOutput {
+  request: {
+    name: string;
+    verbose: boolean;
+  };
   name: string;
   path: string;
   filesScanned: number;
@@ -964,12 +1124,18 @@ export interface UpdateCodebaseScanOutput {
   filesModified: number;
   filesDeleted: number;
   filesUnchanged: number;
+  filesIndexed: number;
+  filesDropped: number;
   chunksAdded: number;
   chunksDeleted: number;
   cacheCleared: boolean;
+  lastChangedFiles?: number;
+  lastChangedAt?: string;
+  lastChangedFilePaths: string[];
   addedFilePaths?: string[];
   modifiedFilePaths?: string[];
   deletedFilePaths?: string[];
+  droppedFilePaths?: string[];
   durationMs: number;
   message: string;
 }

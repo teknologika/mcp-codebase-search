@@ -20,8 +20,8 @@ describe('MCPServer stale warning behavior', () => {
     getFileContent: ReturnType<typeof vi.fn>;
     getAdjacentChunks: ReturnType<typeof vi.fn>;
   };
-  let mockSearchService: { search: ReturnType<typeof vi.fn> };
-  let mockIngestionService: Record<string, unknown>;
+  let mockSearchService: { search: ReturnType<typeof vi.fn>; clearCache: ReturnType<typeof vi.fn> };
+  let mockIngestionService: { rescanCodebase: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     mockCodebaseService = {
@@ -34,13 +34,17 @@ describe('MCPServer stale warning behavior', () => {
 
     mockSearchService = {
       search: vi.fn().mockResolvedValue({
+        query: 'test query',
         results: [],
         totalResults: 0,
         queryTime: 1,
       }),
+      clearCache: vi.fn(),
     };
 
-    mockIngestionService = {};
+    mockIngestionService = {
+      rescanCodebase: vi.fn(),
+    };
     server = new MCPServer(
       mockCodebaseService as any,
       mockSearchService as any,
@@ -66,6 +70,7 @@ describe('MCPServer stale warning behavior', () => {
       },
     ]);
     mockSearchService.search.mockResolvedValue({
+      query: 'test query',
       results: [
         {
           filePath: 'src/a.ts',
@@ -132,6 +137,7 @@ describe('MCPServer stale warning behavior', () => {
     });
 
     const payload = JSON.parse(response.content[0].text);
+    expect(payload.query).toBe('test query');
     expect(payload.staleFiles).toEqual([
       {
         filePath: 'src/a.ts',
@@ -156,6 +162,7 @@ describe('MCPServer stale warning behavior', () => {
       },
     ]);
     mockSearchService.search.mockResolvedValue({
+      query: 'test query',
       results: [
         {
           filePath: 'src/a.ts',
@@ -191,6 +198,7 @@ describe('MCPServer stale warning behavior', () => {
     mockCodebaseService.listFiles.mockResolvedValue([]);
 
     mockSearchService.search.mockResolvedValue({
+      query: 'test query',
       results: [
         {
           filePath: 'src/a.ts',
@@ -280,6 +288,134 @@ describe('MCPServer stale warning behavior', () => {
       chunkType: 'method_part_2',
     });
     expect(payload.after).toHaveLength(1);
+  });
+
+  it('should expose indexed and dropped file counts in update_codebase_scan responses', async () => {
+    mockCodebaseService.listCodebases.mockResolvedValue([
+      {
+        name: 'test-project',
+        path: '/repo/test-project',
+      },
+    ]);
+    mockIngestionService.rescanCodebase.mockResolvedValue({
+      codebaseName: 'test-project',
+      filesScanned: 24,
+      filesAdded: 7,
+      filesModified: 0,
+      filesDeleted: 0,
+      filesUnchanged: 17,
+      filesIndexed: 17,
+      filesDropped: 7,
+      chunksAdded: 47,
+      chunksDeleted: 0,
+      durationMs: 117,
+      lastChangedFiles: 7,
+      lastChangedAt: '2026-04-10T02:00:00.000Z',
+      lastChangedFilePaths: ['src/a.ts', 'src/b.ts'],
+      addedFilePaths: ['config.example.json'],
+      modifiedFilePaths: [],
+      deletedFilePaths: [],
+      droppedFilePaths: [
+        'config.example.json',
+        'docs/chisel-knowledge-mcp.md',
+        'src/domains/workspace/inbox-index.ts',
+        'src/domains/workspace/workspace.service.ts',
+        'src/index.ts',
+        'src/infrastructure/mcp/mcp-server.ts',
+        'src/infrastructure/mcp/tool-schemas.ts',
+      ],
+    });
+
+    const response = await (server as any).handleUpdateCodebaseScan({
+      name: 'test-project',
+      verbose: true,
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    expect(payload).toMatchObject({
+      request: {
+        name: 'test-project',
+        verbose: true,
+      },
+      name: 'test-project',
+      path: '/repo/test-project',
+      filesScanned: 24,
+      filesIndexed: 17,
+      filesDropped: 7,
+      lastChangedFiles: 7,
+      lastChangedAt: '2026-04-10T02:00:00.000Z',
+      lastChangedFilePaths: ['src/a.ts', 'src/b.ts'],
+      cacheCleared: true,
+    });
+    expect(payload.message).toContain('17 indexed');
+    expect(payload.message).toContain('7 dropped');
+    expect(payload.lastChangedFilePaths).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(payload.droppedFilePaths).toEqual([
+      'config.example.json',
+      'docs/chisel-knowledge-mcp.md',
+      'src/domains/workspace/inbox-index.ts',
+      'src/domains/workspace/workspace.service.ts',
+      'src/index.ts',
+      'src/infrastructure/mcp/mcp-server.ts',
+      'src/infrastructure/mcp/tool-schemas.ts',
+    ]);
+    expect(mockSearchService.clearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('should surface the last meaningful change when a follow-up rescan finds no changes', async () => {
+    mockCodebaseService.listCodebases.mockResolvedValue([
+      {
+        name: 'test-project',
+        path: '/repo/test-project',
+      },
+    ]);
+    mockIngestionService.rescanCodebase.mockResolvedValue({
+      codebaseName: 'test-project',
+      filesScanned: 24,
+      filesAdded: 0,
+      filesModified: 0,
+      filesDeleted: 0,
+      filesUnchanged: 24,
+      filesIndexed: 24,
+      filesDropped: 0,
+      chunksAdded: 0,
+      chunksDeleted: 0,
+      durationMs: 84,
+      lastChangedFiles: 7,
+      lastChangedAt: '2026-04-10T02:00:00.000Z',
+      lastChangedFilePaths: ['src/changed-one.ts', 'src/changed-two.ts'],
+      addedFilePaths: [],
+      modifiedFilePaths: [],
+      deletedFilePaths: [],
+      droppedFilePaths: [],
+    });
+
+    const response = await (server as any).handleUpdateCodebaseScan({
+      name: 'test-project',
+      verbose: false,
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    expect(payload).toMatchObject({
+      request: {
+        name: 'test-project',
+        verbose: false,
+      },
+      name: 'test-project',
+      path: '/repo/test-project',
+      filesAdded: 0,
+      filesModified: 0,
+      filesDeleted: 0,
+      lastChangedFiles: 7,
+      lastChangedAt: '2026-04-10T02:00:00.000Z',
+      lastChangedFilePaths: ['src/changed-one.ts', 'src/changed-two.ts'],
+      cacheCleared: true,
+    });
+    expect(payload.message).toContain('0 added');
+    expect(payload.message).toContain('Last meaningful change: 7 files');
+    expect(payload.message).toContain('Files: src/changed-one.ts, src/changed-two.ts');
+    expect(payload.lastChangedFilePaths).toEqual(['src/changed-one.ts', 'src/changed-two.ts']);
+    expect(mockSearchService.clearCache).toHaveBeenCalledTimes(1);
   });
 
   it('should return a recoverable chunk error response', async () => {

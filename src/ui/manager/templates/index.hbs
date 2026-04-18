@@ -107,6 +107,16 @@
 
     {{#if searchResults}}
     <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border-color);">
+        {{#if searchQuery}}
+        <div style="margin-bottom: 1rem; padding: 0.875rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface);">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 0.25rem;">
+                Search performed
+            </div>
+            <div style="font-size: 0.95rem; color: var(--text-primary); word-break: break-word;">
+                "{{searchQuery}}"
+            </div>
+        </div>
+        {{/if}}
         <h3 style="font-size: 1.25rem; margin-bottom: 1rem;">Results ({{searchResults.length}})</h3>
         {{#each searchResults}}
         <div class="search-result" data-expanded="false" onclick="toggleSearchResult(this)">
