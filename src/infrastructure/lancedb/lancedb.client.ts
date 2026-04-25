@@ -269,6 +269,16 @@ export class LanceDBClientWrapper {
     const tableName = LanceDBClientWrapper.getTableName(codebaseName);
     
     try {
+      const tableNames = await this.connection!.tableNames();
+
+      if (!tableNames.includes(tableName)) {
+        this.logger.debug('Table does not exist, skipping delete', {
+          codebaseName,
+          tableName,
+        });
+        return;
+      }
+
       this.logger.info('Deleting LanceDB table', {
         codebaseName,
         tableName,

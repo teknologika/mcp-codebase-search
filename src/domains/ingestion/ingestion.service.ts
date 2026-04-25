@@ -783,11 +783,53 @@ export class IngestionService {
     });
 
     try {
+      const existingTable = await this.lanceClient.getOrCreateTable(codebaseName);
+
+      if (!existingTable) {
+        this.logger.warn('No existing chunk table found, falling back to full ingestion', {
+          codebaseName,
+          codebasePath,
+        });
+
+        const ingestionStats = await this.ingestCodebase(
+          {
+            name: codebaseName,
+            path: codebasePath,
+            config: this.config,
+          },
+          progressCallback
+        );
+
+        const filesIndexed = ingestionStats.filesSuccessfullyParsed ?? ingestionStats.supportedFiles;
+        const durationMs = overallTimer.end();
+
+        return {
+          codebaseName,
+          filesScanned: ingestionStats.totalFiles,
+          filesAdded: filesIndexed,
+          filesModified: 0,
+          filesDeleted: 0,
+          filesUnchanged: 0,
+          filesIndexed,
+          filesDropped: Math.max(ingestionStats.totalFiles - filesIndexed, 0),
+          chunksAdded: ingestionStats.chunksCreated,
+          chunksDeleted: 0,
+          durationMs,
+          lastChangedFiles: filesIndexed,
+          lastChangedAt: new Date().toISOString(),
+          lastChangedFilePaths: [],
+          addedFilePaths: [],
+          modifiedFilePaths: [],
+          deletedFilePaths: [],
+          droppedFilePaths: [],
+        };
+      }
+
       // Phase 1: Get stored file hashes from database
       this.logger.info('Phase 1: Retrieving stored file hashes');
       progressCallback?.('Retrieving stored hashes', 0, 1);
 
-      const table = await this.lanceClient.getOrCreateTable(codebaseName);
+      const table = existingTable;
       if (!table) {
         throw new IngestionError(`Codebase '${codebaseName}' not found`);
       }

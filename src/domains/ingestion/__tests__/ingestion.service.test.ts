@@ -9,6 +9,7 @@ describe('IngestionService storeChunks', () => {
     const lanceClient = {
       getOrCreateTable: vi.fn().mockResolvedValue(table),
       createTableWithData: vi.fn(),
+      tableExists: vi.fn().mockResolvedValue(true),
     };
 
     const service = Object.create(IngestionService.prototype) as IngestionService;
@@ -102,5 +103,44 @@ describe('IngestionService storeChunks', () => {
     const rows = add.mock.calls[0][0];
     expect(rows[0].fullFileContent).toBe('entire file body');
     expect(rows[1].fullFileContent).toBeNull();
+  });
+
+  it('falls back to a full ingest when no chunk table exists', async () => {
+    const { service, lanceClient } = createService();
+    vi.mocked(lanceClient.getOrCreateTable).mockResolvedValue(null);
+    vi.mocked(lanceClient.tableExists).mockResolvedValue(false);
+
+    const ingestSpy = vi
+      .spyOn(service, 'ingestCodebase')
+      .mockResolvedValue({
+        totalFiles: 0,
+        supportedFiles: 0,
+        unsupportedFiles: new Map(),
+        chunksCreated: 0,
+        languages: new Map(),
+        durationMs: 42,
+        filesSuccessfullyParsed: 0,
+        filesFailedToParse: 0,
+      } as any);
+
+    const result = await service.rescanCodebase('demo', '/repo/demo');
+
+    expect(ingestSpy).toHaveBeenCalledWith(
+      { name: 'demo', path: '/repo/demo' },
+      undefined
+    );
+    expect(result).toMatchObject({
+      codebaseName: 'demo',
+      filesScanned: 0,
+      filesAdded: 0,
+      filesModified: 0,
+      filesDeleted: 0,
+      filesUnchanged: 0,
+      filesIndexed: 0,
+      filesDropped: 0,
+      chunksAdded: 0,
+      chunksDeleted: 0,
+    });
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 });

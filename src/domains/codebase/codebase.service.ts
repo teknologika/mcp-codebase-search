@@ -381,10 +381,31 @@ export class CodebaseService {
       try {
         logger.debug('Renaming codebase', { oldName, newName });
 
+        const existingMetadata = await this.lanceClient.getMetadata(oldName);
+
         // Get the old table
         const oldTable = await this.lanceClient.getOrCreateTable(oldName);
         if (!oldTable) {
-          throw new CodebaseError(`Codebase '${oldName}' not found`);
+          if (!existingMetadata) {
+            throw new CodebaseError(`Codebase '${oldName}' not found`);
+          }
+
+          await this.lanceClient.setMetadata({
+            ...existingMetadata,
+            name: newName,
+            lastModified: new Date().toISOString(),
+            tableName: LanceDBClientWrapper.getTableName(newName),
+          });
+          await this.lanceClient.deleteMetadata(oldName);
+
+          logger.debug('Codebase renamed successfully', {
+            oldName,
+            newName,
+            chunksUpdated: 0,
+            chunksSkipped: 0,
+            metadataOnly: true,
+          });
+          return;
         }
 
         // Get all rows from old table
@@ -441,11 +462,30 @@ export class CodebaseService {
           _renamedAt: new Date().toISOString(),
         }));
 
+        const uniqueFileCount = new Set(
+          rows
+            .map((row: any) => row.filePath)
+            .filter((filePath: any): filePath is string => Boolean(filePath))
+        ).size;
+        const renamedAt = new Date().toISOString();
+
         // Create new table with updated data
         if (updatedRows.length > 0) {
           await this.lanceClient.createTableWithData(newName, updatedRows);
         } else {
           logger.warn('No valid chunks to rename after vector validation', { oldName });
+        }
+
+        if (existingMetadata) {
+          await this.lanceClient.setMetadata({
+            ...existingMetadata,
+            name: newName,
+            lastModified: renamedAt,
+            chunkCount: updatedRows.length,
+            fileCount: uniqueFileCount,
+            tableName: LanceDBClientWrapper.getTableName(newName),
+          });
+          await this.lanceClient.deleteMetadata(oldName);
         }
 
         // Delete old table

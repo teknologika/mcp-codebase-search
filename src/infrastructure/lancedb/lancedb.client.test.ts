@@ -22,6 +22,7 @@ const hoisted = vi.hoisted(() => {
     tableNames: vi.fn(),
     createTable: vi.fn(),
     openTable: vi.fn(),
+    dropTable: vi.fn(),
   };
 
   return {
@@ -64,6 +65,7 @@ describe('LanceDBClientWrapper metadata persistence', () => {
     hoisted.connection.tableNames = vi.fn();
     hoisted.connection.createTable = vi.fn();
     hoisted.connection.openTable = vi.fn();
+    hoisted.connection.dropTable = vi.fn();
   });
 
   it('should include last rescan snapshot fields when creating the metadata table', async () => {
@@ -166,5 +168,17 @@ describe('LanceDBClientWrapper metadata persistence', () => {
     expect(hoisted.add.mock.calls[0][0][0].lastRescanChangedFilePaths).toBe('["src/a.ts","src/b.ts"]');
     expect(hoisted.add.mock.calls[0][0][0].lastRescanFilesChanged).toBe(2);
     expect(hoisted.deleteFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should skip deleting a missing table', async () => {
+    hoisted.connection.tableNames.mockResolvedValue([]);
+    hoisted.connectMock.mockResolvedValue(hoisted.connection);
+
+    const client = new LanceDBClientWrapper(config as any);
+    await client.initialize();
+
+    await client.deleteTable('demo');
+
+    expect(hoisted.connection.dropTable).not.toHaveBeenCalled();
   });
 });

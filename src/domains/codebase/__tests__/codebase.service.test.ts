@@ -24,6 +24,8 @@ describe('CodebaseService', () => {
       getOrCreateTable: vi.fn(),
       tableExists: vi.fn(),
       deleteTable: vi.fn(),
+      deleteMetadata: vi.fn(),
+      setMetadata: vi.fn(),
     } as any;
 
     service = new CodebaseService(mockLanceClient, config);
@@ -162,10 +164,12 @@ describe('CodebaseService', () => {
   describe('deleteCodebase', () => {
     it('should delete codebase table', async () => {
       vi.mocked(mockLanceClient.deleteTable).mockResolvedValue();
+      vi.mocked(mockLanceClient.deleteMetadata).mockResolvedValue();
 
       await service.deleteCodebase('test-project');
 
       expect(mockLanceClient.deleteTable).toHaveBeenCalledWith('test-project');
+      expect(mockLanceClient.deleteMetadata).toHaveBeenCalledWith('test-project');
     });
 
     it('should throw CodebaseError on deletion failure', async () => {
@@ -174,6 +178,40 @@ describe('CodebaseService', () => {
       );
 
       await expect(service.deleteCodebase('test-project')).rejects.toThrow(CodebaseError);
+    });
+  });
+
+  describe('renameCodebase', () => {
+    it('should rename a metadata-only codebase without chunk tables', async () => {
+      vi.mocked(mockLanceClient.getMetadata).mockResolvedValue({
+        name: 'old-project',
+        path: '/path/to/project',
+        createdAt: '2024-01-01T00:00:00Z',
+        lastIngested: '2024-01-01T00:00:00Z',
+        lastModified: '2024-01-01T00:00:00Z',
+        chunkCount: 0,
+        fileCount: 0,
+        sizeBytes: 0,
+        languages: [],
+        chunkTypes: [],
+        schemaVersion: '1.0.0',
+        tableName: 'codebase_old-project_1_0_0',
+        status: 'active',
+      } as any);
+      vi.mocked(mockLanceClient.getOrCreateTable).mockResolvedValue(null);
+      vi.mocked(mockLanceClient.setMetadata).mockResolvedValue();
+      vi.mocked(mockLanceClient.deleteMetadata).mockResolvedValue();
+
+      await service.renameCodebase('old-project', 'new-project');
+
+      expect(mockLanceClient.setMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'new-project',
+          tableName: 'codebase_new-project_1_0_0',
+        })
+      );
+      expect(mockLanceClient.deleteMetadata).toHaveBeenCalledWith('old-project');
+      expect(mockLanceClient.deleteTable).not.toHaveBeenCalled();
     });
   });
 
