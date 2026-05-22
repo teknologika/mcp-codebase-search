@@ -53,6 +53,8 @@ describe('LanguageDetectionService', () => {
       expect(service.detectLanguage('config.json')).toBe('json');
       expect(service.detectLanguage('styles.css')).toBe('css');
       expect(service.detectLanguage('config.yaml')).toBe('yaml');
+      expect(service.detectLanguage('MainWindow.xaml')).toBe('plaintext');
+      expect(service.detectLanguage('App.axaml')).toBe('plaintext');
     });
 
     it('should detect filename-based formats', () => {
@@ -92,6 +94,7 @@ describe('LanguageDetectionService', () => {
       expect(service.isSupported('config.json')).toBe(true);
       expect(service.isSupported('styles.css')).toBe(true);
       expect(service.isSupported('config.yaml')).toBe(true);
+      expect(service.isSupported('MainWindow.xaml')).toBe(true);
       expect(service.isSupported('Dockerfile')).toBe(true);
     });
 
@@ -156,6 +159,13 @@ describe('LanguageDetectionService', () => {
       expect(result.extension).toBe('.cs');
     });
 
+    it('should classify XAML files as supported plaintext', () => {
+      const result = service.classifyFile('MainWindow.xaml');
+      expect(result.supported).toBe(true);
+      expect(result.language).toBe('plaintext');
+      expect(result.extension).toBe('.xaml');
+    });
+
     it('should classify filename-based files correctly', () => {
       const result = service.classifyFile('Dockerfile');
       expect(result.supported).toBe(true);
@@ -198,6 +208,7 @@ describe('LanguageDetectionService', () => {
       expect(LANGUAGE_SUPPORT['.json']).toBe('json');
       expect(LANGUAGE_SUPPORT['.css']).toBe('css');
       expect(LANGUAGE_SUPPORT['.yaml']).toBe('yaml');
+      expect(LANGUAGE_SUPPORT['.xaml']).toBe('plaintext');
       expect(LANGUAGE_SUPPORT['.txt']).toBe('plaintext');
     });
   });

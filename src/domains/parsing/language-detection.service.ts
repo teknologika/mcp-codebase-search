@@ -2,7 +2,7 @@
  * Language Detection Service
  * 
  * Provides language detection from file extensions and maps to Tree-sitter grammar names.
- * Supports: C#, Java, JavaScript, TypeScript, Python, JSON, Markdown, YAML, Dockerfile, and plain text
+ * Supports: C#, Java, JavaScript, TypeScript, Python, JSON, Markdown, YAML, XAML, Dockerfile, and plain text
  */
 
 import { Language } from '../../shared/types/index.js';
@@ -26,6 +26,8 @@ export const LANGUAGE_SUPPORT: Record<string, Language> = {
   '.vue': 'vue',
   '.html': 'html',
   '.htm': 'html',
+  '.xaml': 'plaintext',
+  '.axaml': 'plaintext',
   
   // Styling files (plain text)
   '.css': 'css',

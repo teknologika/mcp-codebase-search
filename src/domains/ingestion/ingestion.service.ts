@@ -103,6 +103,58 @@ function ensureUtf8BatchColumnHasValue<T extends Record<string, unknown>>(
   ));
 }
 
+function summarizeBatchRows(rows: Array<Record<string, unknown>>): Record<string, unknown> {
+  const uniqueFilePaths = new Set<string>();
+  const uniqueVectorLengths = new Set<number>();
+  let contentLengthMin = Number.POSITIVE_INFINITY;
+  let contentLengthMax = 0;
+  let fullFileContentStringCount = 0;
+  let fullFileContentNullishCount = 0;
+  let fullFileContentEmptyStringCount = 0;
+  let rowsWithMissingVector = 0;
+
+  for (const row of rows) {
+    if (typeof row.filePath === 'string' && row.filePath.length > 0) {
+      uniqueFilePaths.add(row.filePath);
+    }
+
+    if (Array.isArray(row.vector)) {
+      uniqueVectorLengths.add(row.vector.length);
+    } else {
+      rowsWithMissingVector++;
+    }
+
+    const content = typeof row.content === 'string' ? row.content : '';
+    contentLengthMin = Math.min(contentLengthMin, content.length);
+    contentLengthMax = Math.max(contentLengthMax, content.length);
+
+    if (typeof row.fullFileContent === 'string') {
+      fullFileContentStringCount++;
+      if (row.fullFileContent.length === 0) {
+        fullFileContentEmptyStringCount++;
+      }
+    } else if (row.fullFileContent == null) {
+      fullFileContentNullishCount++;
+    }
+  }
+
+  return {
+    rowCount: rows.length,
+    uniqueFileCount: uniqueFilePaths.size,
+    sampleFilePaths: Array.from(uniqueFilePaths).slice(0, 5),
+    uniqueVectorLengths: Array.from(uniqueVectorLengths).sort((a, b) => a - b),
+    rowsWithMissingVector,
+    contentLengthRange: rows.length > 0
+      ? { min: contentLengthMin, max: contentLengthMax }
+      : null,
+    fullFileContent: {
+      stringCount: fullFileContentStringCount,
+      emptyStringCount: fullFileContentEmptyStringCount,
+      nullishCount: fullFileContentNullishCount,
+    },
+  };
+}
+
 /**
  * Ingestion orchestration service
  */
@@ -578,6 +630,83 @@ export class IngestionService {
   }
 
   /**
+   * Store rows in LanceDB, falling back to smaller batches when a write fails.
+   * This isolates a single bad row instead of dropping the entire batch.
+   */
+  private async storeRowsWithFallback(
+    codebaseName: string,
+    rows: Array<Record<string, any>>,
+    table: any | null,
+    batchIndex: number,
+    droppedFilePaths?: Set<string>
+  ): Promise<{ table: any | null; storedCount: number; droppedCount: number }> {
+    if (rows.length === 0) {
+      return { table, storedCount: 0, droppedCount: 0 };
+    }
+
+    const filePaths = rows
+      .map((row) => row.filePath)
+      .filter((filePath): filePath is string => typeof filePath === 'string' && filePath.length > 0);
+
+    try {
+      if (!table) {
+        table = await this.lanceClient.createTableWithData(codebaseName, rows);
+      } else {
+        await table.add(rows);
+      }
+
+      return { table, storedCount: rows.length, droppedCount: 0 };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const rowSummary = summarizeBatchRows(rows);
+
+      if (rows.length === 1) {
+        this.logDroppedFileBatch(
+          filePaths,
+          'failed to store row',
+          {
+            batchIndex,
+            error: errorMessage,
+            rowSummary,
+          },
+          droppedFilePaths
+        );
+
+        return { table, storedCount: 0, droppedCount: 1 };
+      }
+
+      this.logger.warn('Retrying failed storage batch with smaller batches', {
+        batchIndex,
+        rowCount: rows.length,
+        error: errorMessage,
+        rowSummary,
+      });
+
+      const midpoint = Math.floor(rows.length / 2);
+      const left = await this.storeRowsWithFallback(
+        codebaseName,
+        rows.slice(0, midpoint),
+        table,
+        batchIndex,
+        droppedFilePaths
+      );
+      const right = await this.storeRowsWithFallback(
+        codebaseName,
+        rows.slice(midpoint),
+        left.table ?? table,
+        batchIndex,
+        droppedFilePaths
+      );
+
+      return {
+        table: right.table ?? left.table ?? table,
+        storedCount: left.storedCount + right.storedCount,
+        droppedCount: left.droppedCount + right.droppedCount,
+      };
+    }
+  }
+
+  /**
    * Store chunks in LanceDB
    */
   private async storeChunks(
@@ -635,45 +764,35 @@ export class IngestionService {
         });
       }
 
-      try {
-        // For first batch, create table if it doesn't exist
-        if (i === 0) {
-          table = await this.lanceClient.getOrCreateTable(codebaseName);
-          if (!table) {
-            // Table doesn't exist, create it with first batch
-            this.logger.info('Creating new table with first batch', {
-              codebaseName,
-              batchSize: rows.length,
-            });
-            table = await this.lanceClient.createTableWithData(codebaseName, rows);
-            storedCount += batch.length;
-            progressCallback?.('Storing chunks', storedCount, chunks.length);
-            continue; // Skip the add() call below since we already created with data
-          }
-        }
+      if (i === 0) {
+        table = await this.lanceClient.getOrCreateTable(codebaseName);
+      }
 
-        // Add batch to existing table
-        await table.add(rows);
+      const result = await this.storeRowsWithFallback(
+        codebaseName,
+        rows,
+        table,
+        Math.floor(i / batchSize) + 1,
+        droppedFilePaths
+      );
+      table = result.table;
 
-        storedCount += batch.length;
-        progressCallback?.('Storing chunks', storedCount, chunks.length);
+      storedCount += result.storedCount;
+      progressCallback?.('Storing chunks', storedCount, chunks.length);
 
+      if (result.droppedCount > 0) {
+        this.logger.warn('Batch stored with dropped rows', {
+          batchIndex: Math.floor(i / batchSize) + 1,
+          batchSize: batch.length,
+          storedCount: result.storedCount,
+          droppedCount: result.droppedCount,
+          rowSummary: summarizeBatchRows(rows),
+        });
+      } else {
         this.logger.debug('Batch stored successfully', {
           batchIndex: Math.floor(i / batchSize) + 1,
           batchSize: batch.length,
         });
-      } catch (error) {
-        this.logDroppedFileBatch(
-          batch.map(chunk => chunk.filePath).filter((filePath): filePath is string => Boolean(filePath)),
-          'failed to store batch',
-          {
-            batchIndex: Math.floor(i / batchSize) + 1,
-            batchSize: batch.length,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          droppedFilePaths
-        );
-        throw error;
       }
     }
 

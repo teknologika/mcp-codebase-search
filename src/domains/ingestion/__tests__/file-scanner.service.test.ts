@@ -67,18 +67,19 @@ describe('FileScannerService', () => {
       await fs.writeFile(path.join(testDir, 'code.ts'), 'content');
       await fs.writeFile(path.join(testDir, 'README.md'), 'content');
       await fs.writeFile(path.join(testDir, 'config.json'), 'content');
+      await fs.writeFile(path.join(testDir, 'MainWindow.xaml'), 'content');
       await fs.writeFile(path.join(testDir, 'data.xml'), 'content');
 
       const { files, statistics } = await service.scanDirectory(testDir);
 
-      expect(statistics.totalFiles).toBe(4);
-      expect(statistics.supportedFiles).toBe(3); // .ts, .md, and .json
+      expect(statistics.totalFiles).toBe(5);
+      expect(statistics.supportedFiles).toBe(4); // .ts, .md, .json, and .xaml
       expect(statistics.unsupportedFiles).toBe(1); // .xml
 
       const supported = files.filter(f => f.supported);
       const unsupported = files.filter(f => !f.supported);
 
-      expect(supported).toHaveLength(3);
+      expect(supported).toHaveLength(4);
       expect(unsupported).toHaveLength(1);
     });
 
@@ -228,16 +229,19 @@ describe('FileScannerService', () => {
       await fs.writeFile(path.join(testDir, 'app.ts'), 'content');
       await fs.writeFile(path.join(testDir, 'script.py'), 'content');
       await fs.writeFile(path.join(testDir, 'Main.java'), 'content');
+      await fs.writeFile(path.join(testDir, 'MainWindow.xaml'), 'content');
 
       const { files } = await service.scanDirectory(testDir);
 
       const tsFile = files.find(f => f.extension === '.ts');
       const pyFile = files.find(f => f.extension === '.py');
       const javaFile = files.find(f => f.extension === '.java');
+      const xamlFile = files.find(f => f.extension === '.xaml');
 
       expect(tsFile?.language).toBe('typescript');
       expect(pyFile?.language).toBe('python');
       expect(javaFile?.language).toBe('java');
+      expect(xamlFile?.language).toBe('plaintext');
     });
 
     it('should set language to null for unsupported files', async () => {

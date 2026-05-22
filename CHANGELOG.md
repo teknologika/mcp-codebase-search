@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-05-23
+
+### Changed
+- Bumped the package version to `0.1.18`, pinned top-level dependencies to exact resolved versions, and hardened ingestion so a LanceDB batch-write failure no longer drops an entire rescan batch.
+
 ## [0.1.17] - 2026-04-25
 
 ### Changed

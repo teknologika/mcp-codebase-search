@@ -3,12 +3,20 @@ import { IngestionService } from '../ingestion.service.js';
 import { DEFAULT_CONFIG } from '../../../shared/config/config.js';
 
 describe('IngestionService storeChunks', () => {
-  function createService() {
-    const add = vi.fn().mockResolvedValue(undefined);
+  function createService(
+    options: {
+      addMock?: ReturnType<typeof vi.fn>;
+      getOrCreateTableMock?: unknown;
+      createTableWithDataMock?: unknown;
+    } = {}
+  ) {
+    const add = options.addMock ?? vi.fn().mockResolvedValue(undefined);
     const table = { add };
     const lanceClient = {
-      getOrCreateTable: vi.fn().mockResolvedValue(table),
-      createTableWithData: vi.fn(),
+      getOrCreateTable: vi.fn().mockResolvedValue(
+        options.getOrCreateTableMock ?? table
+      ),
+      createTableWithData: options.createTableWithDataMock ?? vi.fn(),
       tableExists: vi.fn().mockResolvedValue(true),
     };
 
@@ -105,10 +113,53 @@ describe('IngestionService storeChunks', () => {
     expect(rows[1].fullFileContent).toBeNull();
   });
 
+  it('splits a failed batch and keeps storing smaller chunks', async () => {
+    const add = vi.fn().mockImplementation(async (rows) => {
+      if (rows.length > 1) {
+        throw new Error('batch rejected');
+      }
+    });
+    const { service, lanceClient } = createService({ addMock: add });
+
+    await service.storeChunks(
+      'demo',
+      '/repo/demo',
+      [
+        {
+          embedding: [0.1, 0.2],
+          content: 'first chunk',
+          startLine: 1,
+          endLine: 10,
+          chunkType: 'function',
+          language: 'typescript',
+          filePath: 'src/first.ts',
+        },
+        {
+          embedding: [0.3, 0.4],
+          content: 'second chunk',
+          startLine: 11,
+          endLine: 20,
+          chunkType: 'function',
+          language: 'typescript',
+          filePath: 'src/second.ts',
+        },
+      ],
+      '2026-04-13T00:00:00.000Z',
+      new Map(),
+      2
+    );
+
+    expect(lanceClient.getOrCreateTable).toHaveBeenCalledWith('demo');
+    expect(add).toHaveBeenCalledTimes(3);
+    expect(add.mock.calls[0][0]).toHaveLength(2);
+    expect(add.mock.calls[1][0]).toHaveLength(1);
+    expect(add.mock.calls[2][0]).toHaveLength(1);
+  });
+
   it('falls back to a full ingest when no chunk table exists', async () => {
     const { service, lanceClient } = createService();
-    vi.mocked(lanceClient.getOrCreateTable).mockResolvedValue(null);
-    vi.mocked(lanceClient.tableExists).mockResolvedValue(false);
+    (lanceClient.getOrCreateTable as any).mockResolvedValue(null);
+    (lanceClient.tableExists as any).mockResolvedValue(false);
 
     const ingestSpy = vi
       .spyOn(service, 'ingestCodebase')
@@ -126,7 +177,7 @@ describe('IngestionService storeChunks', () => {
     const result = await service.rescanCodebase('demo', '/repo/demo');
 
     expect(ingestSpy).toHaveBeenCalledWith(
-      { name: 'demo', path: '/repo/demo' },
+      expect.objectContaining({ name: 'demo', path: '/repo/demo' }),
       undefined
     );
     expect(result).toMatchObject({
