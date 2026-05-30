@@ -23,6 +23,11 @@ describe('LanguageDetectionService', () => {
       expect(service.detectLanguage('/src/com/example/App.java')).toBe('java');
     });
 
+    it('should detect Go from .go extension', () => {
+      expect(service.detectLanguage('main.go')).toBe('go');
+      expect(service.detectLanguage('/src/cmd/app/main.go')).toBe('go');
+    });
+
     it('should detect JavaScript from .js extension', () => {
       expect(service.detectLanguage('index.js')).toBe('javascript');
       expect(service.detectLanguage('/src/utils/helper.js')).toBe('javascript');
@@ -46,6 +51,11 @@ describe('LanguageDetectionService', () => {
     it('should detect Python from .py extension', () => {
       expect(service.detectLanguage('main.py')).toBe('python');
       expect(service.detectLanguage('/src/utils/helpers.py')).toBe('python');
+    });
+
+    it('should detect Zig from .zig extension', () => {
+      expect(service.detectLanguage('main.zig')).toBe('zig');
+      expect(service.detectLanguage('/src/app/main.zig')).toBe('zig');
     });
 
     it('should detect markdown, json, css, and yaml files', () => {
@@ -85,11 +95,13 @@ describe('LanguageDetectionService', () => {
     it('should return true for supported extensions', () => {
       expect(service.isSupported('file.cs')).toBe(true);
       expect(service.isSupported('file.java')).toBe(true);
+      expect(service.isSupported('file.go')).toBe(true);
       expect(service.isSupported('file.js')).toBe(true);
       expect(service.isSupported('file.jsx')).toBe(true);
       expect(service.isSupported('file.ts')).toBe(true);
       expect(service.isSupported('file.tsx')).toBe(true);
       expect(service.isSupported('file.py')).toBe(true);
+      expect(service.isSupported('file.zig')).toBe(true);
       expect(service.isSupported('README.md')).toBe(true);
       expect(service.isSupported('config.json')).toBe(true);
       expect(service.isSupported('styles.css')).toBe(true);
@@ -114,6 +126,10 @@ describe('LanguageDetectionService', () => {
       expect(service.getGrammarName('java')).toBe('tree-sitter-java');
     });
 
+    it('should return correct Tree-sitter grammar for Go', () => {
+      expect(service.getGrammarName('go')).toBe('tree-sitter-go');
+    });
+
     it('should return correct Tree-sitter grammar for JavaScript', () => {
       expect(service.getGrammarName('javascript')).toBe('tree-sitter-javascript');
     });
@@ -124,6 +140,10 @@ describe('LanguageDetectionService', () => {
 
     it('should return correct Tree-sitter grammar for Python', () => {
       expect(service.getGrammarName('python')).toBe('tree-sitter-python');
+    });
+
+    it('should return correct Tree-sitter grammar for Zig', () => {
+      expect(service.getGrammarName('zig')).toBe('@tree-sitter-grammars/tree-sitter-zig');
     });
   });
 
@@ -199,11 +219,13 @@ describe('LanguageDetectionService', () => {
     it('should have correct mapping for all extensions', () => {
       expect(LANGUAGE_SUPPORT['.cs']).toBe('csharp');
       expect(LANGUAGE_SUPPORT['.java']).toBe('java');
+      expect(LANGUAGE_SUPPORT['.go']).toBe('go');
       expect(LANGUAGE_SUPPORT['.js']).toBe('javascript');
       expect(LANGUAGE_SUPPORT['.jsx']).toBe('javascript');
       expect(LANGUAGE_SUPPORT['.ts']).toBe('typescript');
       expect(LANGUAGE_SUPPORT['.tsx']).toBe('typescript');
       expect(LANGUAGE_SUPPORT['.py']).toBe('python');
+      expect(LANGUAGE_SUPPORT['.zig']).toBe('zig');
       expect(LANGUAGE_SUPPORT['.md']).toBe('markdown');
       expect(LANGUAGE_SUPPORT['.json']).toBe('json');
       expect(LANGUAGE_SUPPORT['.css']).toBe('css');
@@ -216,10 +238,12 @@ describe('LanguageDetectionService', () => {
   describe('TREE_SITTER_GRAMMARS constant', () => {
     it('should have correct grammar names for all languages', () => {
       expect(TREE_SITTER_GRAMMARS.csharp).toBe('tree-sitter-c-sharp');
+      expect(TREE_SITTER_GRAMMARS.go).toBe('tree-sitter-go');
       expect(TREE_SITTER_GRAMMARS.java).toBe('tree-sitter-java');
       expect(TREE_SITTER_GRAMMARS.javascript).toBe('tree-sitter-javascript');
       expect(TREE_SITTER_GRAMMARS.typescript).toBe('tree-sitter-typescript');
       expect(TREE_SITTER_GRAMMARS.python).toBe('tree-sitter-python');
+      expect(TREE_SITTER_GRAMMARS.zig).toBe('@tree-sitter-grammars/tree-sitter-zig');
     });
   });
 

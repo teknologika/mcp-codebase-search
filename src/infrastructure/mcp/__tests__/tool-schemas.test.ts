@@ -132,6 +132,12 @@ describe('MCP Tool Schemas', () => {
       expect(validate(input)).toBe(true);
     });
 
+    it('should validate Go and Zig language filters', () => {
+      const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.inputSchema);
+      expect(validate({ query: 'test', language: 'go' })).toBe(true);
+      expect(validate({ query: 'test', language: 'zig' })).toBe(true);
+    });
+
     it('should reject invalid codebase names', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.inputSchema);
       expect(validate({ query: 'test', codebaseName: 'invalid name!' })).toBe(false);
@@ -650,7 +656,42 @@ describe('MCP Tool Schemas', () => {
     it('should enforce enum values on language parameter', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.inputSchema);
       expect(validate({ query: 'test', language: 'typescript' })).toBe(true);
+      expect(validate({ query: 'test', language: 'go' })).toBe(true);
+      expect(validate({ query: 'test', language: 'zig' })).toBe(true);
       expect(validate({ query: 'test', language: 'ruby' })).toBe(false);
+    });
+
+    it('should allow Go and Zig in search results', () => {
+      const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.outputSchema);
+      const output = {
+        query: 'test',
+        results: [
+          {
+            filePath: 'main.go',
+            startLine: 1,
+            endLine: 5,
+            language: 'go',
+            chunkType: 'function',
+            content: 'package main',
+            similarityScore: 0.9,
+            codebaseName: 'test',
+          },
+          {
+            filePath: 'main.zig',
+            startLine: 1,
+            endLine: 5,
+            language: 'zig',
+            chunkType: 'function',
+            content: 'pub fn main() void {}',
+            similarityScore: 0.8,
+            codebaseName: 'test',
+          },
+        ],
+        totalResults: 2,
+        queryTime: 12,
+        staleFiles: [],
+      };
+      expect(validate(output)).toBe(true);
     });
 
     it('should enforce enum values on chunkType in output', () => {

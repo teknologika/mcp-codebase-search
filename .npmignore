@@ -1,0 +1,39 @@
+# Keep the published package focused on the built runtime.
+
+# Repository-only source and tooling
+src/
+product/
+.kiro/
+.scratchpad/
+coverage/
+.nyc_output/
+tmp/
+temp/
+node_modules/
+
+# Generated or local-only files
+.env.example
+.eslintrc.json
+config.example.json
+tsconfig.json
+vitest.config.ts
+*.db
+*.sqlite
+*.log
+*.tgz
+*.tsbuildinfo
+
+# Local editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Internal docs and release helpers that should not ship
+*.md
+!README.md
+!CHANGELOG.md
+
+# Keep the runtime build output
+!dist/
+!dist/**

@@ -2,15 +2,17 @@
  * Tree-sitter Parsing Service
  * 
  * Provides AST-based code parsing using Tree-sitter to extract semantic chunks
- * from source files. Supports C#, Java, JavaScript, TypeScript, and Python.
+ * from source files. Supports C#, Go, Java, JavaScript, TypeScript, Python, and Zig.
  */
 
 import Parser from 'tree-sitter';
 import TreeSitterCSharp from 'tree-sitter-c-sharp';
+import TreeSitterGo from 'tree-sitter-go';
 import TreeSitterJava from 'tree-sitter-java';
 import TreeSitterJavaScript from 'tree-sitter-javascript';
 import TreeSitterTypeScript from 'tree-sitter-typescript';
 import TreeSitterPython from 'tree-sitter-python';
+import TreeSitterZig from '@tree-sitter-grammars/tree-sitter-zig';
 import { readFile } from 'node:fs/promises';
 import { Language, Chunk, ChunkType, Config } from '../../shared/types/index.js';
 import { createLogger } from '../../shared/logging/logger.js';
@@ -28,6 +30,13 @@ const NODE_TYPE_MAPPINGS: Partial<Record<Language, Record<string, ChunkType>>> =
     method_declaration: 'method',
     property_declaration: 'property',
     interface_declaration: 'interface',
+  },
+  go: {
+    function_declaration: 'function',
+    method_declaration: 'method',
+    type_declaration: 'class',
+    const_declaration: 'field',
+    var_declaration: 'field',
   },
   java: {
     class_declaration: 'class',
@@ -52,6 +61,13 @@ const NODE_TYPE_MAPPINGS: Partial<Record<Language, Record<string, ChunkType>>> =
     function_definition: 'function',
     class_definition: 'class',
   },
+  zig: {
+    function_declaration: 'function',
+    container_field: 'field',
+    struct_declaration: 'class',
+    enum_declaration: 'class',
+    union_declaration: 'class',
+  },
 };
 
 /**
@@ -72,10 +88,12 @@ export class TreeSitterParsingService {
   private initializeParsers(): void {
     const languageConfigs: Partial<Record<Language, any>> = {
       csharp: TreeSitterCSharp,
+      go: TreeSitterGo,
       java: TreeSitterJava,
       javascript: TreeSitterJavaScript,
       typescript: TreeSitterTypeScript.typescript,
       python: TreeSitterPython,
+      zig: TreeSitterZig,
     };
 
     for (const [language, grammarModule] of Object.entries(languageConfigs)) {

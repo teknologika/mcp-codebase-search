@@ -11,6 +11,8 @@ export type Language =
   | "javascript" 
   | "typescript" 
   | "python"
+  | "go"
+  | "zig"
   | "svelte"
   | "vue"
   | "html"

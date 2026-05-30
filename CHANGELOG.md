@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-05-30
+
+### Changed
+- Bumped the package version to `0.1.19` and added Go and Zig support to the language detection and Tree-sitter parsing pipeline.
+
 ## [0.1.18] - 2026-05-23
 
 ### Changed
@@ -106,7 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test and library file detection and filtering
 - Gitignore support during ingestion
 
-[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.18...v0.1.19
 [0.1.16]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.13...v0.1.14

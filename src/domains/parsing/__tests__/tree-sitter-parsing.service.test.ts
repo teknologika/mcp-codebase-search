@@ -91,6 +91,39 @@ function greet(name) {
     });
   });
 
+  describe('Go parsing', () => {
+    it('should extract functions, methods, and types', async () => {
+      const filePath = join(testDir, 'test.go');
+      const code = `package main
+
+type Calculator struct {}
+
+func greet(name string) string {
+  return "Hello, " + name
+}
+
+func (c Calculator) Add(a, b int) int {
+  return a + b
+}`;
+      await writeFile(filePath, code);
+
+      const chunks = await service.parseFile(filePath, 'go');
+
+      expect(chunks.length).toBeGreaterThanOrEqual(3);
+
+      const classChunk = chunks.find(c => c.chunkType === 'class');
+      expect(classChunk).toBeDefined();
+      expect(classChunk?.content).toContain('type Calculator struct');
+
+      const functionChunk = chunks.find(c => c.chunkType === 'function');
+      expect(functionChunk).toBeDefined();
+      expect(functionChunk?.content).toContain('func greet');
+
+      const methodChunks = chunks.filter(c => c.chunkType === 'method');
+      expect(methodChunks.length).toBe(1);
+    });
+  });
+
   describe('TypeScript parsing', () => {
     it('should extract functions and interfaces', async () => {
       const filePath = join(testDir, 'test.ts');
@@ -198,6 +231,36 @@ function createUser(name: string, age: number): User {
       expect(chunks).toHaveLength(1);
       // Note: Docstrings in Python are inside the function, not preceding it
       expect(chunks[0].content).toContain('def greet');
+    });
+  });
+
+  describe('Zig parsing', () => {
+    it('should extract functions and container declarations', async () => {
+      const filePath = join(testDir, 'test.zig');
+      const code = `const std = @import("std");
+
+const Person = struct {
+    name: []const u8,
+};
+
+pub fn greet(name: []const u8) []const u8 {
+    return name;
+}`;
+      await writeFile(filePath, code);
+
+      const chunks = await service.parseFile(filePath, 'zig');
+
+      expect(chunks.length).toBeGreaterThanOrEqual(2);
+
+      const classChunk = chunks.find(c => c.chunkType === 'class');
+      expect(classChunk).toBeDefined();
+
+      const functionChunk = chunks.find(c => c.chunkType === 'function');
+      expect(functionChunk).toBeDefined();
+      expect(functionChunk?.content).toContain('pub fn greet');
+
+      const fieldChunks = chunks.filter(c => c.chunkType === 'field');
+      expect(fieldChunks.length).toBeGreaterThanOrEqual(1);
     });
   });
 

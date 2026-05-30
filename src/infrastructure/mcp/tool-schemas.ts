@@ -119,6 +119,26 @@ export const LIST_CODEBASES_SCHEMA = {
  * Performs semantic search across indexed codebases.
  * Accepts a query string and optional filters for codebase name, language, and max results.
  */
+const SEARCH_LANGUAGE_ENUM = [
+  'csharp',
+  'go',
+  'java',
+  'javascript',
+  'python',
+  'svelte',
+  'typescript',
+  'vue',
+  'html',
+  'css',
+  'scss',
+  'zig',
+  'json',
+  'markdown',
+  'yaml',
+  'dockerfile',
+  'plaintext',
+] as const;
+
 export const SEARCH_CODEBASES_SCHEMA = {
   name: 'search_codebases',
   description: 'Search indexed codebases using semantic search. Returns code chunks ranked by similarity to the query. By default returns metadata only (file paths, line numbers, similarity scores) for efficient scanning. Use get_chunk_content to retrieve full code content for specific results.',
@@ -138,7 +158,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
       language: {
         type: 'string',
         description: 'Optional filter to search only for code in a specific language',
-        enum: ['csharp', 'java', 'javascript', 'typescript', 'python', 'svelte', 'vue', 'html', 'css', 'scss'],
+        enum: [...SEARCH_LANGUAGE_ENUM],
       },
       maxResults: {
         type: 'number',
@@ -193,7 +213,7 @@ export const SEARCH_CODEBASES_SCHEMA = {
             language: {
               type: 'string',
               description: 'Programming language of the code chunk',
-              enum: ['csharp', 'java', 'javascript', 'typescript', 'python'],
+              enum: [...SEARCH_LANGUAGE_ENUM],
             },
             chunkType: {
               type: 'string',
@@ -1021,7 +1041,7 @@ export interface ListCodebasesOutput {
 export interface SearchCodebasesInput {
   query: string;
   codebaseName?: string;
-  language?: 'csharp' | 'java' | 'javascript' | 'typescript' | 'python';
+  language?: typeof SEARCH_LANGUAGE_ENUM[number];
   maxResults?: number;
   includeContent?: boolean;
   topContentResults?: number;

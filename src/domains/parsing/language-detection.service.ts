@@ -2,7 +2,7 @@
  * Language Detection Service
  * 
  * Provides language detection from file extensions and maps to Tree-sitter grammar names.
- * Supports: C#, Java, JavaScript, TypeScript, Python, JSON, Markdown, YAML, XAML, Dockerfile, and plain text
+ * Supports: C#, Go, Java, JavaScript, TypeScript, Python, Zig, JSON, Markdown, YAML, XAML, Dockerfile, and plain text
  */
 
 import { Language } from '../../shared/types/index.js';
@@ -15,11 +15,13 @@ export const LANGUAGE_SUPPORT: Record<string, Language> = {
   // Programming languages (AST-parsed)
   '.cs': 'csharp',
   '.java': 'java',
+  '.go': 'go',
   '.js': 'javascript',
   '.jsx': 'javascript',
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.py': 'python',
+  '.zig': 'zig',
   
   // Web framework files (plain text for now)
   '.svelte': 'svelte',
@@ -87,9 +89,11 @@ export const FILENAME_PATTERNS: Array<{ pattern: RegExp; language: Language }> =
 export const TREE_SITTER_GRAMMARS: Partial<Record<Language, string>> = {
   csharp: 'tree-sitter-c-sharp',
   java: 'tree-sitter-java',
+  go: 'tree-sitter-go',
   javascript: 'tree-sitter-javascript',
   typescript: 'tree-sitter-typescript',
   python: 'tree-sitter-python',
+  zig: '@tree-sitter-grammars/tree-sitter-zig',
   // Non-code languages don't have Tree-sitter grammars
 };
 
