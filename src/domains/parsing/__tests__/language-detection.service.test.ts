@@ -58,13 +58,27 @@ describe('LanguageDetectionService', () => {
       expect(service.detectLanguage('/src/app/main.zig')).toBe('zig');
     });
 
-    it('should detect markdown, json, css, and yaml files', () => {
+    it('should detect Swift from .swift extension', () => {
+      expect(service.detectLanguage('App.swift')).toBe('swift');
+      expect(service.detectLanguage('/Sources/MyApp/AppDelegate.swift')).toBe('swift');
+      expect(service.detectLanguage('Package.swift')).toBe('swift');
+    });
+
+    it('should detect markdown, json, css, yaml, and Apple project files', () => {
       expect(service.detectLanguage('README.md')).toBe('markdown');
       expect(service.detectLanguage('config.json')).toBe('json');
       expect(service.detectLanguage('styles.css')).toBe('css');
       expect(service.detectLanguage('config.yaml')).toBe('yaml');
       expect(service.detectLanguage('MainWindow.xaml')).toBe('plaintext');
       expect(service.detectLanguage('App.axaml')).toBe('plaintext');
+      expect(service.detectLanguage('project.pbxproj')).toBe('plaintext');
+      expect(service.detectLanguage('contents.xcworkspacedata')).toBe('plaintext');
+      expect(service.detectLanguage('App.xcscheme')).toBe('plaintext');
+      expect(service.detectLanguage('Debug.xcconfig')).toBe('plaintext');
+      expect(service.detectLanguage('Info.plist')).toBe('plaintext');
+      expect(service.detectLanguage('App.entitlements')).toBe('plaintext');
+      expect(service.detectLanguage('Main.storyboard')).toBe('plaintext');
+      expect(service.detectLanguage('LaunchScreen.xib')).toBe('plaintext');
     });
 
     it('should detect filename-based formats', () => {
@@ -101,12 +115,16 @@ describe('LanguageDetectionService', () => {
       expect(service.isSupported('file.ts')).toBe(true);
       expect(service.isSupported('file.tsx')).toBe(true);
       expect(service.isSupported('file.py')).toBe(true);
+      expect(service.isSupported('file.swift')).toBe(true);
       expect(service.isSupported('file.zig')).toBe(true);
       expect(service.isSupported('README.md')).toBe(true);
       expect(service.isSupported('config.json')).toBe(true);
       expect(service.isSupported('styles.css')).toBe(true);
       expect(service.isSupported('config.yaml')).toBe(true);
       expect(service.isSupported('MainWindow.xaml')).toBe(true);
+      expect(service.isSupported('project.pbxproj')).toBe(true);
+      expect(service.isSupported('Info.plist')).toBe(true);
+      expect(service.isSupported('App.entitlements')).toBe(true);
       expect(service.isSupported('Dockerfile')).toBe(true);
     });
 
@@ -144,6 +162,10 @@ describe('LanguageDetectionService', () => {
 
     it('should return correct Tree-sitter grammar for Zig', () => {
       expect(service.getGrammarName('zig')).toBe('@tree-sitter-grammars/tree-sitter-zig');
+    });
+
+    it('should return correct Tree-sitter grammar for Swift', () => {
+      expect(service.getGrammarName('swift')).toBe('@sengac/tree-sitter-swift');
     });
   });
 
@@ -225,12 +247,21 @@ describe('LanguageDetectionService', () => {
       expect(LANGUAGE_SUPPORT['.ts']).toBe('typescript');
       expect(LANGUAGE_SUPPORT['.tsx']).toBe('typescript');
       expect(LANGUAGE_SUPPORT['.py']).toBe('python');
+      expect(LANGUAGE_SUPPORT['.swift']).toBe('swift');
       expect(LANGUAGE_SUPPORT['.zig']).toBe('zig');
       expect(LANGUAGE_SUPPORT['.md']).toBe('markdown');
       expect(LANGUAGE_SUPPORT['.json']).toBe('json');
       expect(LANGUAGE_SUPPORT['.css']).toBe('css');
       expect(LANGUAGE_SUPPORT['.yaml']).toBe('yaml');
       expect(LANGUAGE_SUPPORT['.xaml']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.pbxproj']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.xcworkspacedata']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.xcscheme']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.xcconfig']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.plist']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.entitlements']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.storyboard']).toBe('plaintext');
+      expect(LANGUAGE_SUPPORT['.xib']).toBe('plaintext');
       expect(LANGUAGE_SUPPORT['.txt']).toBe('plaintext');
     });
   });
@@ -243,6 +274,7 @@ describe('LanguageDetectionService', () => {
       expect(TREE_SITTER_GRAMMARS.javascript).toBe('tree-sitter-javascript');
       expect(TREE_SITTER_GRAMMARS.typescript).toBe('tree-sitter-typescript');
       expect(TREE_SITTER_GRAMMARS.python).toBe('tree-sitter-python');
+      expect(TREE_SITTER_GRAMMARS.swift).toBe('@sengac/tree-sitter-swift');
       expect(TREE_SITTER_GRAMMARS.zig).toBe('@tree-sitter-grammars/tree-sitter-zig');
     });
   });

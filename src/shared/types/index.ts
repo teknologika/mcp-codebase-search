@@ -12,6 +12,7 @@ export type Language =
   | "typescript" 
   | "python"
   | "go"
+  | "swift"
   | "zig"
   | "svelte"
   | "vue"

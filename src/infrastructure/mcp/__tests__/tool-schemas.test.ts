@@ -132,9 +132,10 @@ describe('MCP Tool Schemas', () => {
       expect(validate(input)).toBe(true);
     });
 
-    it('should validate Go and Zig language filters', () => {
+    it('should validate Go, Swift, and Zig language filters', () => {
       const validate = ajv.compile(SEARCH_CODEBASES_SCHEMA.inputSchema);
       expect(validate({ query: 'test', language: 'go' })).toBe(true);
+      expect(validate({ query: 'test', language: 'swift' })).toBe(true);
       expect(validate({ query: 'test', language: 'zig' })).toBe(true);
     });
 

@@ -264,6 +264,52 @@ pub fn greet(name: []const u8) []const u8 {
     });
   });
 
+  describe('Swift parsing', () => {
+    it('should extract classes, protocols, properties, and functions', async () => {
+      const filePath = join(testDir, 'Test.swift');
+      const code = `protocol Greeting {
+    var name: String { get }
+    func greet() -> String
+}
+
+class Person: Greeting {
+    let name: String
+
+    init(name: String) {
+        self.name = name
+    }
+
+    func greet() -> String {
+        return "Hello, \\(name)"
+    }
+}
+
+func makePerson(name: String) -> Person {
+    return Person(name: name)
+}`;
+      await writeFile(filePath, code);
+
+      const chunks = await service.parseFile(filePath, 'swift');
+
+      expect(chunks.length).toBeGreaterThanOrEqual(4);
+
+      const classChunk = chunks.find(c => c.chunkType === 'class');
+      expect(classChunk).toBeDefined();
+      expect(classChunk?.content).toContain('class Person');
+
+      const interfaceChunk = chunks.find(c => c.chunkType === 'interface');
+      expect(interfaceChunk).toBeDefined();
+      expect(interfaceChunk?.content).toContain('protocol Greeting');
+
+      const functionChunks = chunks.filter(c => c.chunkType === 'function');
+      expect(functionChunks.length).toBeGreaterThanOrEqual(1);
+      expect(functionChunks.some(c => c.content.includes('func makePerson'))).toBe(true);
+
+      const propertyChunks = chunks.filter(c => c.chunkType === 'property');
+      expect(propertyChunks.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
   describe('Java parsing', () => {
     it('should extract class with methods', async () => {
       const filePath = join(testDir, 'Test.java');

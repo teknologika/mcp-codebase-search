@@ -2,7 +2,7 @@
  * Language Detection Service
  * 
  * Provides language detection from file extensions and maps to Tree-sitter grammar names.
- * Supports: C#, Go, Java, JavaScript, TypeScript, Python, Zig, JSON, Markdown, YAML, XAML, Dockerfile, and plain text
+ * Supports: C#, Go, Java, JavaScript, TypeScript, Python, Swift, Zig, JSON, Markdown, YAML, Apple/Xcode project files, XAML, Dockerfile, and plain text
  */
 
 import { Language } from '../../shared/types/index.js';
@@ -21,6 +21,7 @@ export const LANGUAGE_SUPPORT: Record<string, Language> = {
   '.ts': 'typescript',
   '.tsx': 'typescript',
   '.py': 'python',
+  '.swift': 'swift',
   '.zig': 'zig',
   
   // Web framework files (plain text for now)
@@ -30,6 +31,14 @@ export const LANGUAGE_SUPPORT: Record<string, Language> = {
   '.htm': 'html',
   '.xaml': 'plaintext',
   '.axaml': 'plaintext',
+  '.pbxproj': 'plaintext',
+  '.xcworkspacedata': 'plaintext',
+  '.xcscheme': 'plaintext',
+  '.xcconfig': 'plaintext',
+  '.plist': 'plaintext',
+  '.entitlements': 'plaintext',
+  '.storyboard': 'plaintext',
+  '.xib': 'plaintext',
   
   // Styling files (plain text)
   '.css': 'css',
@@ -74,6 +83,7 @@ export const FILENAME_PATTERNS: Array<{ pattern: RegExp; language: Language }> =
   { pattern: /^Dockerfile\./i, language: 'dockerfile' }, // Dockerfile.dev, etc.
   { pattern: /^\.env(\.|$)/i, language: 'plaintext' }, // .env, .env.local, etc.
   { pattern: /^package\.json$/i, language: 'json' },
+  { pattern: /^Package\.swift$/i, language: 'swift' },
   { pattern: /^tsconfig.*\.json$/i, language: 'json' },
   { pattern: /^\.eslintrc\.json$/i, language: 'json' },
   { pattern: /^README/i, language: 'markdown' },
@@ -93,6 +103,7 @@ export const TREE_SITTER_GRAMMARS: Partial<Record<Language, string>> = {
   javascript: 'tree-sitter-javascript',
   typescript: 'tree-sitter-typescript',
   python: 'tree-sitter-python',
+  swift: '@sengac/tree-sitter-swift',
   zig: '@tree-sitter-grammars/tree-sitter-zig',
   // Non-code languages don't have Tree-sitter grammars
 };

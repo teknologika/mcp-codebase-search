@@ -28,8 +28,9 @@ The Codebase Memory MCP Server enables LLM coding assistants to reliably discove
 
 ## Version History
 
-Current release: `0.1.19`
+Current release: `0.1.20`
 
+- `0.1.20` - Version bump for Swift and Apple/Xcode project file support
 - `0.1.19` - Version bump for Go and Zig language support in the parser pipeline
 - `0.1.16` - Version bump for the refreshed rescan logging and dropped-file visibility
 - `0.1.15` - Version bump for the refreshed MCP tool interface and server banner
@@ -45,7 +46,7 @@ For the full release notes, see [CHANGELOG.md](CHANGELOG.md).
 - **Accurate Code Navigation**: Semantic search understands code meaning, not just keywords
 - **Privacy-First**: All processing happens locally — your code never leaves your machine
 - **Fast & Efficient**: Optimised for quick search responses with intelligent caching
-- **Multi-Language**: Support for TypeScript, JavaScript, Python, Go, Zig, Java, C#, Svelte, HTML, CSS, Markdown, and more
+- **Multi-Language**: Support for TypeScript, JavaScript, Python, Swift, Go, Zig, Java, C#, Svelte, HTML, CSS, Markdown, and more
 - **Smart Filtering**: Exclude test files and library code from search results
 - **Staleness Detection**: Automatic warnings when the index may be out of date
 
@@ -55,7 +56,7 @@ For the full release notes, see [CHANGELOG.md](CHANGELOG.md).
 - 🔍 **Semantic Search**: Find code by meaning, not just keywords
 - 🌳 **Tree-sitter Parsing**: AST-aware code chunking for meaningful results
 - 🤖 **MCP Integration**: Seamless integration with MCP-compatible AI assistants (Claude, Kiro, etc.)
-- 🌐 **Multi-Language Support**: TypeScript, JavaScript, Python, Go, Zig, Java, C#, Svelte, HTML, CSS, YAML, Markdown
+- 🌐 **Multi-Language Support**: TypeScript, JavaScript, Python, Swift, Go, Zig, Java, C#, Svelte, HTML, CSS, YAML, Markdown
 - 🖥️ **Web Management UI**: Manage indexed codebases through a browser interface
 - ⚡ **Performance Optimised**: Fast search responses with intelligent result caching
 - 🎯 **Smart Filtering**: Exclude test files and library code from results
@@ -247,7 +248,7 @@ mcp-codebase-ingest --path ~/projects/my-app --name my-app
 
 #### What Gets Indexed?
 
-- ✅ TypeScript, JavaScript, Python, Go, Zig, Java, C#, Svelte, HTML, CSS, YAML, JSON, Markdown
+- ✅ TypeScript, JavaScript, Python, Swift, Go, Zig, Java, C#, Svelte, HTML, CSS, YAML, JSON, Markdown
 - ✅ Files in nested subdirectories (recursive scanning)
 - ✅ Semantic code chunks (functions, classes, methods, interfaces)
 - ✅ Metadata tags (test files, library files)
@@ -697,6 +698,7 @@ Configuration is stored at `~/.codebase-memory/config.json`.
 | **TypeScript** | `.ts`, `.tsx` | function, class, method, interface |
 | **JavaScript** | `.js`, `.jsx` | function, class, method |
 | **Python** | `.py` | function, class, method |
+| **Swift** | `.swift` | function, class, property, interface |
 | **Go** | `.go` | function, method, class, field |
 | **Java** | `.java` | class, method, field, interface |
 | **C#** | `.cs` | class, method, property, interface |
@@ -707,6 +709,7 @@ Configuration is stored at `~/.codebase-memory/config.json`.
 | **JSON** | `.json` | file |
 | **YAML** | `.yaml`, `.yml` | file |
 | **Markdown** | `.md` | sections |
+| **Apple/Xcode Projects** | `.pbxproj`, `.xcworkspacedata`, `.xcscheme`, `.xcconfig`, `.plist`, `.entitlements`, `.storyboard`, `.xib` | file |
 
 Files that produce no AST chunks (e.g. configuration-only or import-only files) are indexed as a single file-level chunk so they remain searchable.
 

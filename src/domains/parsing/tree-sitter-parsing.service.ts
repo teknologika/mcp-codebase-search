@@ -2,7 +2,7 @@
  * Tree-sitter Parsing Service
  * 
  * Provides AST-based code parsing using Tree-sitter to extract semantic chunks
- * from source files. Supports C#, Go, Java, JavaScript, TypeScript, Python, and Zig.
+ * from source files. Supports C#, Go, Java, JavaScript, TypeScript, Python, Swift, and Zig.
  */
 
 import Parser from 'tree-sitter';
@@ -13,12 +13,41 @@ import TreeSitterJavaScript from 'tree-sitter-javascript';
 import TreeSitterTypeScript from 'tree-sitter-typescript';
 import TreeSitterPython from 'tree-sitter-python';
 import TreeSitterZig from '@tree-sitter-grammars/tree-sitter-zig';
+import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { Language, Chunk, ChunkType, Config } from '../../shared/types/index.js';
 import { createLogger } from '../../shared/logging/logger.js';
 import { getTokenCounter } from '../../shared/utils/token-counter.js';
 
 const logger = createLogger('info').child('TreeSitterParsingService');
+const require = createRequire(import.meta.url);
+const SengacParser = require('@sengac/tree-sitter') as typeof Parser;
+const TreeSitterSwift = require('@sengac/tree-sitter-swift') as unknown;
+
+interface TreeSitterPoint {
+  row: number;
+  column: number;
+}
+
+interface TreeSitterSyntaxNode {
+  type: string;
+  childCount: number;
+  parent: TreeSitterSyntaxNode | null;
+  startIndex: number;
+  endIndex: number;
+  startPosition: TreeSitterPoint;
+  endPosition: TreeSitterPoint;
+  child(index: number): TreeSitterSyntaxNode | null;
+}
+
+interface TreeSitterParser {
+  setLanguage(language: unknown): void;
+  parse(
+    input: string,
+    oldTree?: unknown,
+    options?: { bufferSize?: number }
+  ): { rootNode: TreeSitterSyntaxNode };
+}
 
 /**
  * Node type mappings for each language that supports AST parsing
@@ -61,6 +90,14 @@ const NODE_TYPE_MAPPINGS: Partial<Record<Language, Record<string, ChunkType>>> =
     function_definition: 'function',
     class_definition: 'class',
   },
+  swift: {
+    class_declaration: 'class',
+    function_declaration: 'function',
+    protocol_declaration: 'interface',
+    property_declaration: 'property',
+    struct_declaration: 'class',
+    enum_declaration: 'class',
+  },
   zig: {
     function_declaration: 'function',
     container_field: 'field',
@@ -74,7 +111,7 @@ const NODE_TYPE_MAPPINGS: Partial<Record<Language, Record<string, ChunkType>>> =
  * Tree-sitter Parsing Service
  */
 export class TreeSitterParsingService {
-  private parsers: Map<Language, Parser> = new Map();
+  private parsers: Map<Language, TreeSitterParser> = new Map();
   private config: Config;
 
   constructor(config: Config) {
@@ -86,20 +123,21 @@ export class TreeSitterParsingService {
    * Initialize Tree-sitter parsers for all supported languages
    */
   private initializeParsers(): void {
-    const languageConfigs: Partial<Record<Language, any>> = {
-      csharp: TreeSitterCSharp,
-      go: TreeSitterGo,
-      java: TreeSitterJava,
-      javascript: TreeSitterJavaScript,
-      typescript: TreeSitterTypeScript.typescript,
-      python: TreeSitterPython,
-      zig: TreeSitterZig,
+    const languageConfigs: Partial<Record<Language, { parser: new () => TreeSitterParser; grammar: unknown }>> = {
+      csharp: { parser: Parser, grammar: TreeSitterCSharp },
+      go: { parser: Parser, grammar: TreeSitterGo },
+      java: { parser: Parser, grammar: TreeSitterJava },
+      javascript: { parser: Parser, grammar: TreeSitterJavaScript },
+      typescript: { parser: Parser, grammar: TreeSitterTypeScript.typescript },
+      python: { parser: Parser, grammar: TreeSitterPython },
+      swift: { parser: SengacParser, grammar: TreeSitterSwift },
+      zig: { parser: Parser, grammar: TreeSitterZig },
     };
 
-    for (const [language, grammarModule] of Object.entries(languageConfigs)) {
+    for (const [language, { parser: ParserClass, grammar }] of Object.entries(languageConfigs)) {
       try {
-        const parser = new Parser();
-        parser.setLanguage(grammarModule);
+        const parser = new ParserClass();
+        parser.setLanguage(grammar);
         this.parsers.set(language as Language, parser);
         logger.debug('Initialized Tree-sitter parser', { language });
       } catch (error) {
@@ -182,7 +220,7 @@ export class TreeSitterParsingService {
    * @returns Array of extracted chunks
    */
   private extractChunks(
-      node: Parser.SyntaxNode,
+      node: TreeSitterSyntaxNode,
       sourceCode: string,
       filePath: string,
       language: Language
@@ -237,7 +275,7 @@ export class TreeSitterParsingService {
    * @param node - The node to check
    * @returns True if the node is inside a class
    */
-  private isInsideClass(node: Parser.SyntaxNode): boolean {
+  private isInsideClass(node: TreeSitterSyntaxNode): boolean {
     let current = node.parent;
     while (current) {
       if (current.type === 'class_definition') {
@@ -259,7 +297,7 @@ export class TreeSitterParsingService {
    * @returns The created chunk
    */
   private createChunk(
-    node: Parser.SyntaxNode,
+    node: TreeSitterSyntaxNode,
     sourceCode: string,
     filePath: string,
     language: Language,
@@ -287,7 +325,7 @@ export class TreeSitterParsingService {
    * @returns Object with text, start line, and end line
    */
   private getNodeWithContext(
-    node: Parser.SyntaxNode,
+    node: TreeSitterSyntaxNode,
     sourceCode: string,
     language: Language
   ): { text: string; startLine: number; endLine: number } {
@@ -318,10 +356,10 @@ export class TreeSitterParsingService {
    * @returns The preceding context node, or null if none
    */
   private getPrecedingContext(
-    node: Parser.SyntaxNode,
+    node: TreeSitterSyntaxNode,
     _sourceCode: string,
     language: Language
-  ): Parser.SyntaxNode | null {
+  ): TreeSitterSyntaxNode | null {
     if (!node.parent) {
       return null;
     }
@@ -358,7 +396,7 @@ export class TreeSitterParsingService {
    * @param language - The language
    * @returns True if the node is a comment or docstring
    */
-  private isCommentOrDocstring(node: Parser.SyntaxNode, language: Language): boolean {
+  private isCommentOrDocstring(node: TreeSitterSyntaxNode, language: Language): boolean {
     const commentTypes: Partial<Record<Language, string[]>> = {
       csharp: ['comment', 'documentation_comment'],
       java: ['comment', 'line_comment', 'block_comment'],

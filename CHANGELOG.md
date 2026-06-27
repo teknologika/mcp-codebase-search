@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-06-27
+
+### Added
+- Added Swift support using `@sengac/tree-sitter-swift`, including AST chunking for Swift classes, protocols, properties, and functions.
+- Added Apple/Xcode project file indexing for `.pbxproj`, `.xcworkspacedata`, `.xcscheme`, `.xcconfig`, `.plist`, `.entitlements`, `.storyboard`, and `.xib` files.
+
+### Changed
+- Bumped the package version to `0.1.20` and synced the MCP server banner version.
+
 ## [0.1.19] - 2026-05-30
 
 ### Changed
@@ -111,7 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test and library file detection and filtering
 - Gitignore support during ingestion
 
-[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.18...v0.1.19
 [0.1.16]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/teknologika/mcp-codebase-search/compare/v0.1.14...v0.1.15

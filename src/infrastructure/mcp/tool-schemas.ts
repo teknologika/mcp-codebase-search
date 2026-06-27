@@ -126,6 +126,7 @@ const SEARCH_LANGUAGE_ENUM = [
   'javascript',
   'python',
   'svelte',
+  'swift',
   'typescript',
   'vue',
   'html',
