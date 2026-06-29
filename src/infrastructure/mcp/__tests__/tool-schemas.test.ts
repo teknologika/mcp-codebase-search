@@ -16,6 +16,7 @@ import {
   UPDATE_CODEBASE_SCAN_SCHEMA,
   GET_CHUNK_CONTENT_SCHEMA,
   GET_ADJACENT_CHUNKS_SCHEMA,
+  GET_SYMBOL_SCHEMA,
   ALL_TOOL_SCHEMAS,
 } from '../tool-schemas.js';
 
@@ -546,8 +547,9 @@ describe('MCP Tool Schemas', () => {
   });
 
   describe('ALL_TOOL_SCHEMAS', () => {
-    it('should export all nine tool schemas', () => {
-      expect(ALL_TOOL_SCHEMAS).toHaveLength(9);
+    it('should export all eleven tool schemas', () => {
+      expect(ALL_TOOL_SCHEMAS).toHaveLength(11);
+      expect(ALL_TOOL_SCHEMAS).toContain(GET_SYMBOL_SCHEMA);
     });
 
     it('should have unique tool names', () => {

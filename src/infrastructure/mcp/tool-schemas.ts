@@ -996,6 +996,220 @@ export const GET_ADJACENT_CHUNKS_SCHEMA = {
   },
 } as const;
 
+export const DETECT_CHANGES_SCHEMA = {
+  name: 'detect_changes',
+  description:
+    'Runs git diff on a codebase to find modified files and maps changes to ' +
+    'indexed chunks. Returns affected files, chunk IDs, line ranges, and a ' +
+    'risk classification (low / medium / high) based on how much of each file ' +
+    'changed and whether the file is imported by many others.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the indexed codebase to analyse.',
+      },
+      includeStagedChanges: {
+        type: 'boolean',
+        description:
+          'If true, also include staged (git diff --cached) changes. Default false.',
+      },
+      baseRef: {
+        type: 'string',
+        description:
+          'Git ref to diff against. Defaults to HEAD. Examples: "main", "HEAD~3".',
+      },
+    },
+    required: ['codebaseName'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the analysed codebase',
+      },
+      baseRef: {
+        type: 'string',
+        description: 'Git ref used as the diff base',
+      },
+      totalFilesChanged: {
+        type: 'number',
+        description: 'Total number of files reported by git diff',
+        minimum: 0,
+      },
+      totalChunksAffected: {
+        type: 'number',
+        description: 'Total number of indexed chunks overlapping changed lines',
+        minimum: 0,
+      },
+      files: {
+        type: 'array',
+        description: 'Changed files with indexed chunk overlap and risk details',
+        items: {
+          type: 'object',
+          properties: {
+            filePath: {
+              type: 'string',
+            },
+            changeType: {
+              type: 'string',
+              enum: ['modified', 'added', 'deleted'],
+            },
+            indexed: {
+              type: 'boolean',
+            },
+            risk: {
+              type: 'string',
+              enum: ['low', 'medium', 'high'],
+            },
+            changedLineRanges: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  start: { type: 'number', minimum: 0 },
+                  end: { type: 'number', minimum: 0 },
+                },
+                required: ['start', 'end'],
+                additionalProperties: false,
+              },
+            },
+            affectedChunks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  chunkId: { type: 'string' },
+                  startLine: { type: 'number', minimum: 0 },
+                  endLine: { type: 'number', minimum: 0 },
+                  preview: { type: 'string' },
+                },
+                required: ['chunkId', 'startLine', 'endLine', 'preview'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['filePath', 'changeType', 'indexed', 'risk', 'changedLineRanges', 'affectedChunks'],
+          additionalProperties: false,
+        },
+      },
+      error: {
+        type: 'string',
+        description: 'Recoverable error message when git diff cannot run',
+      },
+    },
+    required: ['codebaseName', 'baseRef', 'totalFilesChanged', 'totalChunksAffected', 'files'],
+    additionalProperties: false,
+  },
+} as const;
+
+export const GET_SYMBOL_SCHEMA = {
+  name: 'get_symbol',
+  description:
+    'Finds a named symbol (function, class, constant, type, interface, enum, ' +
+    'variable) in an indexed codebase by exact or fuzzy name match. Returns ' +
+    'the source code, file path, and line range. Prefer this over search_codebases ' +
+    'when you already know the symbol name. Much more reliable than get_chunk_content ' +
+    'for identifier lookup.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the indexed codebase to search.',
+      },
+      symbolName: {
+        type: 'string',
+        description:
+          'Exact or partial symbol name to find. Examples: "ALL_TOOL_SCHEMAS", ' +
+          '"CodebaseService", "handleGetChunkContent", "MAX_CHUNK_SIZE". ' +
+          'Case-insensitive substring match is used if no exact match is found.',
+      },
+      filePath: {
+        type: 'string',
+        description:
+          'Optional. Restrict search to this file path (relative to codebase root ' +
+          'or a substring of the path). Useful when the symbol name is common.',
+      },
+      matchMode: {
+        type: 'string',
+        enum: ['exact', 'prefix', 'contains'],
+        description:
+          'How to match the symbol name. "exact" is case-insensitive exact match. ' +
+          '"prefix" matches names starting with symbolName. "contains" (default) ' +
+          'matches names containing symbolName as a substring.',
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum number of matching symbols to return. Default 5, max 20.',
+        minimum: 1,
+        maximum: 20,
+        default: 5,
+      },
+      includeContent: {
+        type: 'boolean',
+        description:
+          'If true (default), include the full source text of each matched symbol. ' +
+          'Set false to get only file paths and line ranges for a cheaper scan.',
+        default: true,
+      },
+    },
+    required: ['codebaseName', 'symbolName'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      codebaseName: {
+        type: 'string',
+        description: 'Name of the searched codebase.',
+      },
+      symbolName: {
+        type: 'string',
+        description: 'Symbol name supplied by the caller.',
+      },
+      matchMode: {
+        type: 'string',
+        enum: ['exact', 'prefix', 'contains'],
+        description: 'Matching strategy used for this lookup.',
+      },
+      totalMatches: {
+        type: 'number',
+        description: 'Total number of matching chunks before truncation.',
+        minimum: 0,
+      },
+      symbols: {
+        type: 'array',
+        description: 'Matching symbols ordered by definition quality and location.',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            kind: { type: 'string', enum: ['definition', 'usage'] },
+            filePath: { type: 'string' },
+            startLine: { type: 'number', minimum: 0 },
+            endLine: { type: 'number', minimum: 0 },
+            chunkId: { type: 'string' },
+            content: { type: 'string' },
+            preview: { type: 'string' },
+          },
+          required: ['name', 'kind', 'filePath', 'startLine', 'endLine', 'chunkId', 'preview'],
+          additionalProperties: false,
+        },
+      },
+      warning: {
+        type: 'string',
+        description: 'Recoverable lookup warning, such as no definition found.',
+      },
+    },
+    required: ['codebaseName', 'symbolName', 'matchMode', 'totalMatches', 'symbols'],
+    additionalProperties: false,
+  },
+} as const;
+
 /**
  * All tool schemas exported as an array for easy registration
  */
@@ -1009,6 +1223,8 @@ export const ALL_TOOL_SCHEMAS = [
   GET_CHUNK_CONTENT_SCHEMA,
   GET_FILE_CONTENT_SCHEMA,
   GET_ADJACENT_CHUNKS_SCHEMA,
+  DETECT_CHANGES_SCHEMA,
+  GET_SYMBOL_SCHEMA,
 ] as const;
 
 /**
@@ -1201,4 +1417,58 @@ export interface GetAdjacentChunksInput {
   endLine: number;
   before?: number;
   after?: number;
+}
+
+export interface DetectChangesInput {
+  codebaseName: string;
+  includeStagedChanges?: boolean;
+  baseRef?: string;
+}
+
+export interface GetSymbolInput {
+  codebaseName: string;
+  symbolName: string;
+  filePath?: string;
+  matchMode?: 'exact' | 'prefix' | 'contains';
+  maxResults?: number;
+  includeContent?: boolean;
+}
+
+export interface DetectChangesOutput {
+  codebaseName: string;
+  baseRef: string;
+  totalFilesChanged: number;
+  totalChunksAffected: number;
+  files: Array<{
+    filePath: string;
+    changeType: 'modified' | 'added' | 'deleted';
+    indexed: boolean;
+    risk: 'low' | 'medium' | 'high';
+    changedLineRanges: Array<{ start: number; end: number }>;
+    affectedChunks: Array<{
+      chunkId: string;
+      startLine: number;
+      endLine: number;
+      preview: string;
+    }>;
+  }>;
+  error?: string;
+}
+
+export interface GetSymbolOutput {
+  codebaseName: string;
+  symbolName: string;
+  matchMode: 'exact' | 'prefix' | 'contains';
+  totalMatches: number;
+  symbols: Array<{
+    name: string;
+    kind: 'definition' | 'usage';
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    chunkId: string;
+    content?: string;
+    preview: string;
+  }>;
+  warning?: string;
 }

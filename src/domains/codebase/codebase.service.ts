@@ -14,11 +14,111 @@ import type {
 } from '../../shared/types/index.js';
 import { LanceDBClientWrapper } from '../../infrastructure/lancedb/lancedb.client.js';
 import { createLogger } from '../../shared/logging/index.js';
+import { execFile } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 const rootLogger = createLogger('info');
 const logger = rootLogger.child('CodebaseService');
+const execFileAsync = promisify(execFile);
+
+export interface DetectChangesParams {
+  codebaseName: string;
+  includeStagedChanges?: boolean;
+  baseRef?: string;
+}
+
+type ChangeType = 'modified' | 'added' | 'deleted';
+type RiskLevel = 'low' | 'medium' | 'high';
+
+interface ChangedLineRange {
+  start: number;
+  end: number;
+}
+
+interface IndexedChunkRow {
+  id?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+  content?: string;
+  importedBy?: string[] | string;
+}
+
+export interface GetSymbolParams {
+  codebaseName: string;
+  symbolName: string;
+  filePath?: string;
+  matchMode?: 'exact' | 'prefix' | 'contains';
+  maxResults?: number;
+  includeContent?: boolean;
+}
+
+type SymbolMatchMode = 'exact' | 'prefix' | 'contains';
+type SymbolResultKind = 'definition' | 'usage';
+
+interface SymbolChunkRow extends IndexedChunkRow {
+  language?: string;
+  chunkType?: string;
+}
+
+interface SymbolMatch {
+  name: string;
+  kind: SymbolResultKind;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  chunkId: string;
+  content?: string;
+  preview: string;
+  rank: number;
+}
+
+export interface GetSymbolResult {
+  codebaseName: string;
+  symbolName: string;
+  matchMode: SymbolMatchMode;
+  totalMatches: number;
+  symbols: Array<{
+    name: string;
+    kind: SymbolResultKind;
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    chunkId: string;
+    content?: string;
+    preview: string;
+  }>;
+  warning?: string;
+}
+
+export interface DetectChangesResult {
+  codebaseName: string;
+  baseRef: string;
+  totalFilesChanged: number;
+  totalChunksAffected: number;
+  files: Array<{
+    filePath: string;
+    changeType: ChangeType;
+    indexed: boolean;
+    risk: RiskLevel;
+    changedLineRanges: ChangedLineRange[];
+    affectedChunks: Array<{
+      chunkId: string;
+      startLine: number;
+      endLine: number;
+      preview: string;
+    }>;
+  }>;
+  error?: string;
+}
+
+interface ParsedDiffFile {
+  filePath: string;
+  changeType: ChangeType;
+  changedLineRanges: ChangedLineRange[];
+}
 
 /**
  * Helper function to safely extract error message from unknown error
@@ -951,6 +1051,206 @@ export class CodebaseService {
     }
   }
 
+  async getSymbol(params: GetSymbolParams): Promise<GetSymbolResult> {
+    const matchMode = params.matchMode ?? 'contains';
+    const maxResults = Math.min(Math.max(params.maxResults ?? 5, 1), 20);
+    const includeContent = params.includeContent ?? true;
+    const symbolName = params.symbolName.trim();
+
+    if (!symbolName) {
+      return {
+        codebaseName: params.codebaseName,
+        symbolName: params.symbolName,
+        matchMode,
+        totalMatches: 0,
+        symbols: [],
+      };
+    }
+
+    try {
+      const table = await this.lanceClient.getOrCreateTable(params.codebaseName);
+      if (!table) {
+        throw new CodebaseError(`Codebase '${params.codebaseName}' not found`);
+      }
+
+      const rows = await table.query().toArray() as SymbolChunkRow[];
+      const filePathFilter = params.filePath?.toLowerCase();
+      const matches: SymbolMatch[] = [];
+
+      for (const row of rows) {
+        const content = row.content ?? '';
+        const filePath = row.filePath ?? '';
+
+        if (!content || (filePathFilter && !filePath.toLowerCase().includes(filePathFilter))) {
+          continue;
+        }
+
+        const matchedName = this.findMatchedSymbolName(content, symbolName, matchMode);
+        if (!matchedName) {
+          continue;
+        }
+
+        const kind: SymbolResultKind = this.isDefinitionChunk(content, matchedName)
+          ? 'definition'
+          : 'usage';
+        const startLine = Number(row.startLine ?? 0);
+        const endLine = Number(row.endLine ?? 0);
+        matches.push({
+          name: matchedName,
+          kind,
+          filePath,
+          startLine,
+          endLine,
+          chunkId: row.id ?? `${filePath}:${startLine}-${endLine}`,
+          ...(includeContent ? { content } : {}),
+          preview: this.getChunkPreview(content),
+          rank: this.getSymbolRank(matchedName, symbolName, kind),
+        });
+      }
+
+      matches.sort((left, right) => {
+        if (left.rank !== right.rank) {
+          return left.rank - right.rank;
+        }
+        if (left.filePath !== right.filePath) {
+          return left.filePath.localeCompare(right.filePath);
+        }
+        return left.startLine - right.startLine;
+      });
+
+      const symbols = matches.slice(0, maxResults).map(({ rank: _rank, ...match }) => match);
+      const hasDefinition = matches.some((match) => match.kind === 'definition');
+
+      return {
+        codebaseName: params.codebaseName,
+        symbolName: params.symbolName,
+        matchMode,
+        totalMatches: matches.length,
+        symbols,
+        ...(!hasDefinition && matches.length > 0
+          ? { warning: 'No definition found; showing usage sites' }
+          : {}),
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(
+        'Failed to get symbol',
+        error instanceof Error ? error : new Error(errorMessage),
+        { codebaseName: params.codebaseName, symbolName: params.symbolName }
+      );
+      throw new CodebaseError(
+        `Failed to get symbol '${params.symbolName}' in codebase '${params.codebaseName}': ${errorMessage}`,
+        error
+      );
+    }
+  }
+
+  private findMatchedSymbolName(
+    content: string,
+    symbolName: string,
+    matchMode: SymbolMatchMode
+  ): string | null {
+    const variants = this.getSymbolNameVariants(symbolName);
+    const identifiers = content.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
+    const matchingIdentifiers = identifiers.filter((identifier) =>
+      variants.some((variant) => this.matchesSymbol(identifier, variant, matchMode))
+    );
+
+    if (matchingIdentifiers.length === 0) {
+      return null;
+    }
+
+    matchingIdentifiers.sort((left, right) =>
+      this.getIdentifierMatchRank(left, variants) - this.getIdentifierMatchRank(right, variants)
+    );
+
+    return matchingIdentifiers[0];
+  }
+
+  private matchesSymbol(identifier: string, query: string, matchMode: SymbolMatchMode): boolean {
+    const lowerIdentifier = identifier.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+
+    switch (matchMode) {
+      case 'exact':
+        return lowerIdentifier === lowerQuery;
+      case 'prefix':
+        return lowerIdentifier.startsWith(lowerQuery);
+      case 'contains':
+        return lowerIdentifier.includes(lowerQuery);
+    }
+  }
+
+  private getIdentifierMatchRank(identifier: string, variants: string[]): number {
+    const lowerIdentifier = identifier.toLowerCase();
+    const lowerVariants = variants.map((variant) => variant.toLowerCase());
+
+    if (lowerVariants.includes(lowerIdentifier)) {
+      return 0;
+    }
+
+    if (lowerVariants.some((variant) => lowerIdentifier.startsWith(variant))) {
+      return 1;
+    }
+
+    return 2;
+  }
+
+  private getSymbolNameVariants(symbolName: string): string[] {
+    const snakeCase = symbolName
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/([A-Z])([A-Z][a-z])/g, '$1_$2')
+      .toLowerCase();
+
+    return Array.from(new Set([symbolName, snakeCase].filter(Boolean)));
+  }
+
+  private isDefinitionChunk(content: string, symbolName: string): boolean {
+    return this.getSymbolNameVariants(symbolName).some((variant) => {
+      const escapedName = this.escapeRegExp(variant);
+      const definitionPatterns = [
+        `^\\s*(export\\s+)?(default\\s+)?(async\\s+)?function\\s+${escapedName}\\b`,
+        `^\\s*(export\\s+)?(const|let|var)\\s+${escapedName}\\s*[:=]`,
+        `^\\s*(export\\s+)?(abstract\\s+)?class\\s+${escapedName}\\b`,
+        `^\\s*(export\\s+)?interface\\s+${escapedName}\\b`,
+        `^\\s*(export\\s+)?type\\s+${escapedName}\\s*=`,
+        `^\\s*(export\\s+)?enum\\s+${escapedName}\\b`,
+        `^\\s*(?:(?:public|private|protected|static|async)\\s+)*${escapedName}\\s*\\(`,
+      ];
+
+      return definitionPatterns.some((pattern) =>
+        new RegExp(pattern, 'im').test(content)
+      );
+    });
+  }
+
+  private getSymbolRank(
+    matchedName: string,
+    symbolName: string,
+    kind: SymbolResultKind
+  ): number {
+    const lowerMatchedName = matchedName.toLowerCase();
+    const lowerSymbolName = symbolName.toLowerCase();
+
+    if (kind === 'definition' && lowerMatchedName === lowerSymbolName) {
+      return 0;
+    }
+
+    if (kind === 'definition' && lowerMatchedName.startsWith(lowerSymbolName)) {
+      return 1;
+    }
+
+    if (kind === 'definition') {
+      return 2;
+    }
+
+    return 3;
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   /**
    * Get chunks immediately before and after a given line range in a file.
    * Useful for navigating split chunks (method_part_N, class_part_N).
@@ -1037,6 +1337,286 @@ export class CodebaseService {
         error
       );
     }
+  }
+
+  async detectChanges(params: DetectChangesParams): Promise<DetectChangesResult> {
+    const baseRef = params.baseRef ?? 'HEAD';
+    const emptyResult = (error?: string): DetectChangesResult => ({
+      codebaseName: params.codebaseName,
+      baseRef,
+      totalFilesChanged: 0,
+      totalChunksAffected: 0,
+      files: [],
+      ...(error ? { error } : {}),
+    });
+
+    let rootPath: string;
+    try {
+      rootPath = await this.getCodebasePath(params.codebaseName);
+    } catch (error) {
+      return emptyResult(error instanceof Error ? error.message : String(error));
+    }
+
+    let stdout = '';
+    try {
+      const result = await execFileAsync('git', ['diff', '--unified=0', baseRef], {
+        cwd: rootPath,
+        maxBuffer: 10_000_000,
+      }) as { stdout: string } | string;
+      stdout = typeof result === 'string' ? result : result.stdout;
+
+      if (params.includeStagedChanges) {
+        const stagedResult = await execFileAsync('git', ['diff', '--unified=0', '--cached', baseRef], {
+          cwd: rootPath,
+          maxBuffer: 10_000_000,
+        }) as { stdout: string } | string;
+        stdout += `\n${typeof stagedResult === 'string' ? stagedResult : stagedResult.stdout}`;
+      }
+    } catch (error) {
+      return emptyResult(error instanceof Error ? error.message : String(error));
+    }
+
+    const changedFiles = this.mergeParsedDiffFiles(this.parseGitDiff(stdout));
+    const table = await this.lanceClient.getOrCreateTable(params.codebaseName);
+    if (!table) {
+      throw new CodebaseError(`Codebase '${params.codebaseName}' not found`);
+    }
+
+    const files: DetectChangesResult['files'] = [];
+    let totalChunksAffected = 0;
+
+    for (const changedFile of changedFiles) {
+      const escapedFilePath = changedFile.filePath.replace(/'/g, "''");
+      const rows = (await table
+        .query()
+        .where(`\`filePath\` = '${escapedFilePath}'`)
+        .toArray()) as IndexedChunkRow[];
+
+      const affectedRows = rows.filter((row) => {
+        const chunkStart = Number(row.startLine ?? 0);
+        const chunkEnd = Number(row.endLine ?? 0);
+        return changedFile.changedLineRanges.some(
+          (range) => chunkStart <= range.end && chunkEnd >= range.start
+        );
+      });
+
+      const affectedChunks = affectedRows
+        .sort((left, right) => Number(left.startLine ?? 0) - Number(right.startLine ?? 0))
+        .map((row) => ({
+          chunkId: row.id ?? `${changedFile.filePath}:${row.startLine ?? 0}-${row.endLine ?? 0}`,
+          startLine: Number(row.startLine ?? 0),
+          endLine: Number(row.endLine ?? 0),
+          preview: this.getChunkPreview(row.content ?? ''),
+        }));
+
+      totalChunksAffected += affectedChunks.length;
+
+      files.push({
+        filePath: changedFile.filePath,
+        changeType: changedFile.changeType,
+        indexed: rows.length > 0,
+        risk: this.classifyChangeRisk(changedFile, rows, affectedRows.length),
+        changedLineRanges: changedFile.changedLineRanges,
+        affectedChunks,
+      });
+    }
+
+    return {
+      codebaseName: params.codebaseName,
+      baseRef,
+      totalFilesChanged: files.length,
+      totalChunksAffected,
+      files,
+    };
+  }
+
+  private parseGitDiff(diff: string): ParsedDiffFile[] {
+    const files: ParsedDiffFile[] = [];
+    let currentFile: ParsedDiffFile | undefined;
+    let oldPath: string | undefined;
+    let newPath: string | undefined;
+
+    for (const line of diff.split('\n')) {
+      if (line.startsWith('diff --git ')) {
+        if (currentFile) {
+          files.push(currentFile);
+        }
+        currentFile = undefined;
+        oldPath = undefined;
+        newPath = undefined;
+        continue;
+      }
+
+      if (line.startsWith('--- ')) {
+        oldPath = this.normalizeDiffPath(line.slice(4).trim());
+        continue;
+      }
+
+      if (line.startsWith('+++ ')) {
+        newPath = this.normalizeDiffPath(line.slice(4).trim());
+        const filePath = newPath === '/dev/null' ? oldPath : newPath;
+        if (filePath && filePath !== '/dev/null') {
+          currentFile = {
+            filePath,
+            changeType: this.getDiffChangeType(oldPath, newPath),
+            changedLineRanges: [],
+          };
+        }
+        continue;
+      }
+
+      if (!currentFile || !line.startsWith('@@ ')) {
+        continue;
+      }
+
+      const match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (!match) {
+        continue;
+      }
+
+      const start = Number(match[1]);
+      const length = match[2] === undefined ? 1 : Number(match[2]);
+      currentFile.changedLineRanges.push({
+        start,
+        end: length === 0 ? start : start + length - 1,
+      });
+    }
+
+    if (currentFile) {
+      files.push(currentFile);
+    }
+
+    return files;
+  }
+
+  private mergeParsedDiffFiles(files: ParsedDiffFile[]): ParsedDiffFile[] {
+    const merged = new Map<string, ParsedDiffFile>();
+
+    for (const file of files) {
+      const existing = merged.get(file.filePath);
+      if (!existing) {
+        merged.set(file.filePath, {
+          ...file,
+          changedLineRanges: [...file.changedLineRanges],
+        });
+        continue;
+      }
+
+      existing.changedLineRanges.push(...file.changedLineRanges);
+      if (file.changeType === 'deleted' || existing.changeType === 'deleted') {
+        existing.changeType = 'deleted';
+      } else if (file.changeType === 'added' || existing.changeType === 'added') {
+        existing.changeType = 'added';
+      }
+    }
+
+    for (const file of merged.values()) {
+      file.changedLineRanges = this.mergeLineRanges(file.changedLineRanges);
+    }
+
+    return Array.from(merged.values());
+  }
+
+  private mergeLineRanges(ranges: ChangedLineRange[]): ChangedLineRange[] {
+    const sortedRanges = [...ranges].sort((left, right) => left.start - right.start);
+    const merged: ChangedLineRange[] = [];
+
+    for (const range of sortedRanges) {
+      const previous = merged[merged.length - 1];
+      if (previous && range.start <= previous.end + 1) {
+        previous.end = Math.max(previous.end, range.end);
+      } else {
+        merged.push({ ...range });
+      }
+    }
+
+    return merged;
+  }
+
+  private normalizeDiffPath(diffPath: string): string {
+    if (diffPath === '/dev/null') {
+      return diffPath;
+    }
+
+    return diffPath.replace(/^[ab]\//, '');
+  }
+
+  private getDiffChangeType(oldPath?: string, newPath?: string): ChangeType {
+    if (oldPath === '/dev/null') {
+      return 'added';
+    }
+
+    if (newPath === '/dev/null') {
+      return 'deleted';
+    }
+
+    return 'modified';
+  }
+
+  private getChunkPreview(content: string): string {
+    const firstLine = content.split(/\r?\n/).find((line) => line.trim().length > 0) ?? '';
+    return firstLine.trim().slice(0, 120);
+  }
+
+  private classifyChangeRisk(
+    changedFile: ParsedDiffFile,
+    indexedRows: IndexedChunkRow[],
+    affectedChunkCount: number
+  ): RiskLevel {
+    if (changedFile.changeType === 'deleted' || this.isCriticalFileName(changedFile.filePath)) {
+      return 'high';
+    }
+
+    const affectedRatio = indexedRows.length > 0 ? affectedChunkCount / indexedRows.length : 0;
+    if (affectedRatio > 0.5) {
+      return 'high';
+    }
+
+    if (affectedRatio >= 0.2 || this.getImportedByCount(indexedRows) > 10) {
+      return 'medium';
+    }
+
+    return 'low';
+  }
+
+  private isCriticalFileName(filePath: string): boolean {
+    const fileName = path.basename(filePath).toLowerCase();
+    return (
+      fileName.includes('index') ||
+      fileName.includes('router') ||
+      fileName.includes('server') ||
+      /^app\./.test(fileName) ||
+      /^main\./.test(fileName)
+    );
+  }
+
+  private getImportedByCount(rows: IndexedChunkRow[]): number {
+    const importedBy = new Set<string>();
+
+    for (const row of rows) {
+      if (Array.isArray(row.importedBy)) {
+        for (const importer of row.importedBy) {
+          importedBy.add(importer);
+        }
+      } else if (typeof row.importedBy === 'string' && row.importedBy.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(row.importedBy) as unknown;
+          if (Array.isArray(parsed)) {
+            for (const importer of parsed) {
+              if (typeof importer === 'string') {
+                importedBy.add(importer);
+              }
+            }
+          } else {
+            importedBy.add(row.importedBy);
+          }
+        } catch {
+          importedBy.add(row.importedBy);
+        }
+      }
+    }
+
+    return importedBy.size;
   }
 
   /**

@@ -34,11 +34,15 @@ import {
   GET_CHUNK_CONTENT_SCHEMA,
   GET_FILE_CONTENT_SCHEMA,
   GET_ADJACENT_CHUNKS_SCHEMA,
+  DETECT_CHANGES_SCHEMA,
+  GET_SYMBOL_SCHEMA,
   type SearchCodebasesInput,
   type GetCodebaseStatsInput,
   type GetChunkContentInput,
   type GetFileContentInput,
   type GetAdjacentChunksInput,
+  type DetectChangesInput,
+  type GetSymbolInput,
 } from './tool-schemas.js';
 
 // Silent logger for MCP server - no logging to avoid interfering with stdio JSON-RPC
@@ -149,6 +153,10 @@ export class MCPServer {
             return await this.handleGetFileContent(args);
           case 'get_adjacent_chunks':
             return await this.handleGetAdjacentChunks(args);
+          case 'detect_changes':
+            return await this.handleDetectChanges(args);
+          case 'get_symbol':
+            return await this.handleGetSymbol(args);
           default:
             throw this.createError(
               MCPErrorCode.TOOL_NOT_FOUND,
@@ -512,6 +520,32 @@ export class MCPServer {
   }
 
   /**
+   * Handle get_symbol tool call
+   */
+  private async handleGetSymbol(args: unknown) {
+    this.validateInput(GET_SYMBOL_SCHEMA.inputSchema, args);
+    const input = args as GetSymbolInput;
+
+    const result = await this.codebaseService.getSymbol({
+      codebaseName: input.codebaseName,
+      symbolName: input.symbolName,
+      filePath: input.filePath,
+      matchMode: input.matchMode ?? 'contains',
+      maxResults: Math.min(input.maxResults ?? 5, 20),
+      includeContent: input.includeContent ?? true,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  }
+
+  /**
    * Handle get_file_content tool call
    */
   private async handleGetFileContent(args: unknown) {
@@ -629,6 +663,21 @@ export class MCPServer {
         }],
       };
     }
+  }
+
+  private async handleDetectChanges(args: unknown) {
+    this.validateInput(DETECT_CHANGES_SCHEMA.inputSchema, args);
+    const input = args as DetectChangesInput;
+
+    const result = await this.codebaseService.detectChanges({
+      codebaseName: input.codebaseName,
+      includeStagedChanges: input.includeStagedChanges,
+      baseRef: input.baseRef,
+    });
+
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    };
   }
 
   private async getStaleFiles(
